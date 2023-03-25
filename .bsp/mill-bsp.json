@@ -1,0 +1,1 @@
+{"name":"mill-bsp","argv":["/opt/homebrew/Cellar/mill/0.10.12/libexec/mill","--bsp","--disable-ticker","--color","false","--jobs","1"],"millVersion":"0.10.12","bspVersion":"2.0.0","languages":["scala","java"]}
