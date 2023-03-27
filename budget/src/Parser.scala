@@ -1,0 +1,117 @@
+package budget
+
+import java.time.{LocalDate, LocalDateTime}
+import java.time.format.DateTimeFormatter
+import scala.util.Try
+import zio.ZLayer
+
+import models._
+
+trait Parser[Err] {
+  def parseLineItemBlocks(s: String): Either[Err, List[LineItem]]
+}
+
+case class SimpleInefficientParser() extends Parser[String] {
+
+  override def parseLineItemBlocks(s: String): Either[String, List[LineItem]] =
+    s.trim.split("\n\n").toList.foldLeft[Either[String, List[LineItem]]](Right(List.empty)) {
+      case (Right(lineItems), block) =>
+        parseLineItemBlock(block).map(_ ++ lineItems)
+      case (err@Left(_), _) =>
+        err
+    }
+
+  def parseLineItemBlock(s: String): Either[String, List[LineItem]] = s.lines.toList match {
+    case date :: lineItems =>
+      parseDate(date).flatMap(lineDate =>
+        lineItems.foldLeft[Either[String, List[LineItem]]](Right(List.empty)) {
+          case (Right(lineItems), line) =>
+            parseLineItem(lineDate, line).map(_ :: lineItems)
+          case (err@Left(_), _) =>
+            err
+        }
+      )
+    case _ =>
+      Left(s"Bad block: $s")
+  }
+
+  def parseLineItem(dateTime: LocalDateTime, s: String): Either[String, LineItem] =
+    parseTransactionLine(dateTime, s)
+      .orElse(parseExchangeLine(dateTime, s))
+
+  def parseExchangeLine(dateTime: LocalDateTime, s: String): Either[String, LineItem.Exchange] =
+    s.split("->").toList.map(_.trim) match {
+      case amountGiven :: amountReceivedWithMeta :: _ =>
+        amountReceivedWithMeta.split(",").toList match {
+          case amountReceived :: maybeMeta =>
+            val meta = maybeMeta match {
+              case catAndTags :: notes =>
+                parseCategoryAndAnyTags(catAndTags).map { case (cat, tags) =>
+                  (cat, tags, notes.mkString(","))
+                }
+              case _ =>
+                // hardcoded defaults ftw!
+                Right(("exchange", List.empty, ""))
+            }
+
+            for {
+              amtGiven <- parseAmountWithOptionalCurrency(amountGiven)
+              amtRec <- parseAmountWithOptionalCurrency(amountReceived)
+              met <- meta
+              (cat, tags, nots) = met
+            } yield LineItem.Exchange(amtGiven, amtRec, dateTime, nots, cat, tags)
+
+          case _ =>
+            Left(s"Bad line: $s")
+        }
+      case _ =>
+        Left(s"Bad line: $s")
+    }
+
+  def parseTransactionLine(dateTime: LocalDateTime, s: String): Either[String, LineItem.Transaction] =
+    s.split(",").toList.map(_.trim) match {
+      case amount :: catAndTags :: notes =>
+        for {
+          amount <- parseAmountWithOptionalCurrency(amount)
+          catAndTags <- parseCategoryAndAnyTags(catAndTags)
+          (cat, tags) = catAndTags
+        } yield LineItem.Transaction(amount, dateTime, notes.mkString(","), cat, tags)
+      case _ =>
+        Left(s"Bad line: $s")
+    }
+
+  def parseAmountWithOptionalCurrency(s: String): Either[String, Amount] = {
+    val magnitudeString = s.trim.takeWhile(c => c.isDigit || c == '.')
+
+    def currency(magLength: Int) = s.drop(magLength).trim.split(" ").toList match {
+      case symbol :: name :: _ if symbol.length == 1 =>
+        Currency(name = Some(name), symbol = Some(symbol))
+      case symbol :: _ if symbol.length == 1 =>
+        Currency(name = None, symbol = Some(symbol))
+      case name :: _ =>
+        Currency(name = Some(name), symbol = None)
+    }
+
+    Try(magnitudeString.toDouble)
+      .toEither.left.map(_.toString)
+      .map(mag =>
+        Amount(currency(magnitudeString.length), mag)
+      )
+  }
+
+  def parseCategoryAndAnyTags(s: String): Either[String, (String, List[String])] =
+    s.split(" ").toList match {
+      case cat :: tags => Right((cat, tags))
+      case _ => Left(s"Bad category and tags: $s")
+    }
+
+  def parseDate(s: String): Either[String, LocalDateTime] = {
+    val format = DateTimeFormatter.ofPattern("M/d/yy")
+    // Maybe I'll add support for recording specific times later
+    Try(LocalDate.parse(s, format).atTime(0, 0))
+      .toEither.left.map(_.toString)
+  }
+}
+object SimpleInefficientParser {
+  val liveLayer = ZLayer.succeed(SimpleInefficientParser())
+}

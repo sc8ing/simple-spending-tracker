@@ -3,7 +3,7 @@ package budget
 import java.time.LocalDateTime
 
 object models {
-  case class Currency(name: String, symbol: String)
+  case class Currency(name: Option[String], symbol: Option[String])
   case class Amount(currency: Currency, magnitude: Double)
 
   /** An individual recording in the budget text file */
