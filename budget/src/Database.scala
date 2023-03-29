@@ -4,9 +4,11 @@ import java.io.File
 import java.sql.{PreparedStatement, Connection, DriverManager, ResultSet, SQLException, Statement, Time}
 import java.time.ZoneId
 import zio._
+import zio.macros.accessible
 
 import models._
 
+@accessible
 trait Database {
   def insertCurrency(c: Currency): Task[Int]
   def insertTag(c: String): Task[Int]
