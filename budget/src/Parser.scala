@@ -23,7 +23,7 @@ case class SimpleInefficientParser() extends Parser[String] {
         err
     }
 
-  def parseLineItemBlock(s: String): Either[String, List[LineItem]] = s.lines.toList match {
+  def parseLineItemBlock(s: String): Either[String, List[LineItem]] = s.lines.toList.asInstanceOf[List[String]] match {
     case date :: lineItems =>
       parseDate(date).flatMap(lineDate =>
         lineItems.foldLeft[Either[String, List[LineItem]]](Right(List.empty)) {
@@ -87,18 +87,19 @@ case class SimpleInefficientParser() extends Parser[String] {
 
     def currency(magLength: Int) = s.drop(magLength).trim.split(" ").toList match {
       case symbol :: name :: _ if symbol.length == 1 =>
-        Currency(name = Some(name), symbol = Some(symbol))
+        Right(Currency(name = Some(name), symbol = Some(symbol)))
       case symbol :: _ if symbol.length == 1 =>
-        Currency(name = None, symbol = Some(symbol))
+        Right(Currency(name = None, symbol = Some(symbol)))
       case name :: _ =>
-        Currency(name = Some(name), symbol = None)
+        Right(Currency(name = Some(name), symbol = None))
+      case _ =>
+        Left(s"Bad amount: $s")
     }
 
-    Try(magnitudeString.toDouble)
-      .toEither.left.map(_.toString)
-      .map(mag =>
-        Amount(currency(magnitudeString.length), mag)
-      )
+    for {
+      mag <- Try(magnitudeString.toDouble).toEither.left.map(_.toString)
+      cur <- currency(magnitudeString.length)
+    } yield Amount(cur, mag)
   }
 
   def parseCategoryAndAnyTags(s: String): Either[String, (String, List[String])] =
