@@ -8,6 +8,7 @@ import models._
 object MainApp extends ZIOAppDefault {
   val app = for {
     _ <- Console.printLine("Running")
+    _ <- Database.setupDbIfNeeded
     numLoaded <- loadTransactionsToDb
     _ <- Console.printLine(s"Loaded $numLoaded line items")
   } yield ()

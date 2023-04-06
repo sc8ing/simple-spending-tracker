@@ -10,6 +10,7 @@ import models._
 
 @accessible
 trait Database {
+  def setupDbIfNeeded: Task[Unit]
   def insertCurrency(c: Currency): Task[Int]
   def insertTag(c: String): Task[Int]
   def insertCategory(c: String): Task[Int]
@@ -17,6 +18,87 @@ trait Database {
 }
 
 case class SQLDatabase(connManager: SQLConnManager) extends Database {
+
+  def setupDbIfNeeded: Task[Unit] = connManager.withConnection { conn =>
+    val createTables: Task[Unit] = ZIO.foreach(List(
+        """
+      |CREATE TABLE IF NOT EXISTS currency (
+        |  currency_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        |  name TEXT NOT NULL,
+        |  symbol TEXT NOT NULL
+        |);
+      """.stripMargin,
+      """
+      |CREATE TABLE IF NOT EXISTS category (
+        |  category_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        |  name TEXT NOT NULL
+        |);
+      """.stripMargin,
+      """
+      |CREATE TABLE IF NOT EXISTS tag (
+        |  tag_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        |  name TEXT NOT NULL
+        |);
+      """.stripMargin,
+      """
+      |CREATE TABLE IF NOT EXISTS exchange (
+        |  exchange_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        |  given_currency_id INTEGER NOT NULL,
+        |  given_magnitude INTEGER NOT NULL,
+        |  received_currency_id INTEGER NOT NULL,
+        |  received_magnitude INTEGER NOT NULL,
+        |  created_at DATETIME NOT NULL,
+        |  FOREIGN KEY (given_currency_id) REFERENCES currency (currency_id),
+        |  FOREIGN KEY (received_currency_id) REFERENCES currency (currency_id)
+        |);
+      """.stripMargin,
+      """
+      |CREATE TABLE IF NOT EXISTS exchange_tag (
+        |  exchange_id INTEGER NOT NULL,
+        |  tag_id INTEGER NOT NULL,
+        |  FOREIGN KEY (exchange_id) REFERENCES exchange (exchange_id),
+        |  FOREIGN KEY (tag_id) REFERENCES tag (tag_id)
+        |);
+      """.stripMargin,
+      """
+      |CREATE TABLE IF NOT EXISTS txn (
+        |  txn_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        |  currency_id INTEGER NOT NULL,
+        |  amount INTEGER NOT NULL,
+        |  category_id INTEGER NOT NULL,
+        |  notes TEXT NOT NULL,
+        |  created_at DATETIME NOT NULL,
+        |  FOREIGN KEY (currency_id) REFERENCES currency (currency_id),
+        |  FOREIGN KEY (category_id) REFERENCES category (category_id)
+        |);
+      """.stripMargin,
+      """
+      |CREATE TABLE IF NOT EXISTS txn_tag (
+        |  txn_id INTEGER NOT NULL,
+        |  tag_id INTEGER NOT NULL,
+        |  FOREIGN KEY (txn_id) REFERENCES txn (txn_id),
+        |  FOREIGN KEY (tag_id) REFERENCES tag (tag_id)
+        |);
+      """.stripMargin
+    ))(sql => ZIO.attempt(conn.createStatement().execute(sql))).unit
+
+    val tablesExist: UIO[Boolean] = 
+      ZIO.log("Checking if tables exist") *>
+        connManager.withConnection(conn => ZIO.attempt(
+          conn.prepareStatement("SELECT * FROM txn").executeQuery()
+        ).as(true))
+        .catchAllCause(e =>
+          ZIO.logCause(
+            "Assuming tables don't exist because of error reading from txn table",
+            e
+          ).as(false)
+        )
+
+    ZIO.ifZIO(tablesExist)(
+      ZIO.log("DB already setup"),
+      ZIO.log("Setting up DB") *> createTables *> ZIO.log("DB setup successfully")
+    )
+  }
 
   def insert(sql: String, setParams: PreparedStatement => Unit): Task[Int] =
     connManager.withConnection(conn =>
@@ -120,6 +202,7 @@ case class SQLiteConnManager(config: SQLiteConfig) extends SQLConnManager {
   def withConnection[A](f: Connection => Task[A]): Task[A] = {
     val manageConn = ZIO.acquireReleaseExit(
         ZIO.attempt(DriverManager.getConnection("jdbc:sqlite:" + config.dbPath))
+          .tap(conn => ZIO.attempt(conn.setAutoCommit(false)))
       ) {
         case (conn, Exit.Success(_)) =>
           ZIO.succeed { conn.commit(); conn.close() }
