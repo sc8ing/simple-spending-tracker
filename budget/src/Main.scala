@@ -15,8 +15,7 @@ object MainApp extends ZIOAppDefault {
 
   val loadTransactionsToDb = for {
     rawBlocks <- UserInteractor.promptInput("Input transactions: ").runCollect
-    _ <- Console.printLine(rawBlocks.asString)
-    maybeParsed <- Parser.parseLineItemBlocks[String](rawBlocks.asString)
+    maybeParsed <- Parser.parseLineItemBlocks[String](rawBlocks.mkString("\n"))
     lineItems <- ZIO.fromEither(maybeParsed).mapError(new Throwable(_))
     adjustedLineItems <- ZIO.foreach(lineItems)(Adjuster.adjust)
     _ <- ZIO.foreachDiscard(adjustedLineItems)(Database.insertLineItem)

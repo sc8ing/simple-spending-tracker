@@ -27,11 +27,20 @@ case class CLIUserInteractor() extends UserInteractor {
     }
   } yield bool
 
-  def promptInput(query: String): Stream[Throwable, String] =
-    ZStream.fromZIOOption(Console.readLine.mapError(Option(_)).flatMap {
-      case "EOF" => ZIO.fail(None)
-      case s => ZIO.succeed(s)
+  // Reads until it gets two empty lines in a row
+  def promptInput(query: String): Stream[Throwable, String] = {
+    var lastReadLineEmpty = false
+    ZStream.repeatZIOOption(Console.readLine.mapError(Some(_)).flatMap {
+      case s if s.isEmpty && lastReadLineEmpty =>
+        ZIO.fail(None)
+      case s if s.isEmpty =>
+        lastReadLineEmpty = true
+        ZIO.succeed(s)
+      case s =>
+        lastReadLineEmpty = false
+        ZIO.succeed(s)
     })
+  }
 }
 object CLIUserInteractor {
   val liveLayer = ZLayer.succeed(CLIUserInteractor())

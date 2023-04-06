@@ -85,7 +85,7 @@ case class SQLDatabase(connManager: SQLConnManager) extends Database {
     val tablesExist: UIO[Boolean] = 
       ZIO.log("Checking if tables exist") *>
         connManager.withConnection(conn => ZIO.attempt(
-          conn.prepareStatement("SELECT * FROM txn").executeQuery()
+          conn.prepareStatement("SELECT * FROM txn").executeQuery().close()
         ).as(true))
         .catchAllCause(e =>
           ZIO.logCause(
@@ -102,36 +102,45 @@ case class SQLDatabase(connManager: SQLConnManager) extends Database {
 
   def insert(sql: String, setParams: PreparedStatement => Unit): Task[Int] =
     connManager.withConnection(conn =>
+      ZIO.log("Running SQL: " + sql) *>
       ZIO.attempt {
         val stat = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)
         setParams(stat)
         stat.executeUpdate()
-        stat.getGeneratedKeys().getInt(1)
+        val rs = stat.getGeneratedKeys()
+        val res = rs.getInt(1)
+        rs.close()
+        res
       }
     )
 
   def getId(query: String, setParams: PreparedStatement => Unit): Task[Option[Int]] =
+    ZIO.log("Running SQL: " + query) *>
     connManager.withConnection(conn =>
       ZIO.attempt {
         val stat = conn.prepareStatement(query)
         setParams(stat)
-        stat.executeQuery()
-        val rs = stat.getResultSet()
-        if (rs.next()) Option(rs.getInt(1)) else None
+        val rs = stat.executeQuery()
+        val res = if (rs.next()) Option(rs.getInt(1)) else None
+        rs.close()
+        res
       }
     )
 
   def getOrInsert(table: String, columnParams: List[(String, Any)]): Task[Int] = for {
     columns <- ZIO.succeed(columnParams.map(_._1))
     setParams = (ps: PreparedStatement) => columnParams.zipWithIndex.foreach {
-      case ((_, value), index) => ps.setObject(index, value)
+      case ((_, value), index) =>
+        // java.lang.System.out.println(ps.toString())
+        // java.lang.System.out.println(s"Setting param ${index + 1} to $value")
+        ps.setObject(index + 1, value)
     }
     doInsert = insert(
       s"INSERT INTO $table (${columns.mkString(", ")}) VALUES (${columns.map(_ => "?").mkString(", ")})",
       setParams
     )
     maybeId <- getId(
-      s"SELECT * FROM $table WHERE " + columns.mkString(" = ? AND "),
+      s"SELECT * FROM $table WHERE " + columns.mkString(" = ? AND ") + " = ?",
       setParams
     )
     id <- maybeId.fold(doInsert)(ZIO.succeed(_))
