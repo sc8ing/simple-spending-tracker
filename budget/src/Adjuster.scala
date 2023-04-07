@@ -27,10 +27,10 @@ case class CLIUserInteractor() extends UserInteractor {
     }
   } yield bool
 
-  // Reads until it gets two empty lines in a row
+  // Reads until it gets two empty lines in a row. Ignores lines starting with "--"
   def promptInput(query: String): Stream[Throwable, String] = {
     var lastReadLineEmpty = false
-    ZStream.repeatZIOOption(Console.readLine.mapError(Some(_)).flatMap {
+    def readLine: IO[Option[Throwable], String] = Console.readLine.mapError(Some(_)).flatMap {
       case s if s.isEmpty && lastReadLineEmpty =>
         ZIO.fail(None)
       case s if s.isEmpty =>
@@ -38,15 +38,20 @@ case class CLIUserInteractor() extends UserInteractor {
         ZIO.succeed(s)
       case s =>
         lastReadLineEmpty = false
-        ZIO.succeed(s)
-    })
+        if (s.startsWith("--")) readLine
+        else ZIO.succeed(s)
+    }
+    ZStream.repeatZIOOption(readLine)
   }
 }
 object CLIUserInteractor {
   val liveLayer = ZLayer.succeed(CLIUserInteractor())
 }
 
-case class QuestionAnswerAdjuster(prompter: UserInteractor) extends Adjuster[LineItem] {
+case class QuestionAnswerAdjuster(
+  prompter: UserInteractor,
+  defaults: DefaultSettings
+) extends Adjuster[LineItem] {
   override def adjust(a: LineItem): Task[LineItem] = a match {
     case txn: Transaction => composeAdjusters(transactionAdjusters)(txn)
     case ex: Exchange => composeAdjusters(exchangeAdjusters)(ex)
@@ -54,6 +59,12 @@ case class QuestionAnswerAdjuster(prompter: UserInteractor) extends Adjuster[Lin
 
   def composeAdjusters[A](adjusters: List[A => Task[A]]): (A => Task[A]) =
     adjusters.fold(ZIO.attempt(_: A))((a1, a2) => a => a1(a).flatMap(a2))
+
+  val defaultCurrencyAdjuster = (cur: Currency) => cur match {
+    case Currency(None, None) =>
+      ZIO.succeed(Currency(Some(defaults.currencyName), Some(defaults.currencySymbol)))
+    case _ => ZIO.succeed(cur)
+  }
 
   val transactionAdjusters: List[Transaction => Task[Transaction]] = List(
     // Negative income adjuster
@@ -68,11 +79,15 @@ case class QuestionAnswerAdjuster(prompter: UserInteractor) extends Adjuster[Lin
             txn.copy(amount = txn.amount.copy(magnitude = txn.amount.magnitude * (-1)))
         }
       else
-        ZIO.succeed(txn)
-
+        ZIO.succeed(txn),
+    (txn: Transaction) =>
+      defaultCurrencyAdjuster(txn.amount.currency)
+        .map(c => txn.copy(amount = txn.amount.copy(currency = c)))
   )
+
+  // Don't adjust exchange currencies with defaults, force to be explicit when converting
   val exchangeAdjusters: List[Exchange => Task[Exchange]] = List.empty
 }
 object QuestionAnswerAdjuster {
-  val liveLayer = ZLayer.fromFunction(QuestionAnswerAdjuster(_))
+  val liveLayer = ZLayer.fromFunction(QuestionAnswerAdjuster(_, _))
 }

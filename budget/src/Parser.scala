@@ -38,21 +38,20 @@ case class SimpleInefficientParser() extends Parser[String] {
   }
 
   def parseLineItem(dateTime: LocalDateTime, s: String): Either[String, LineItem] =
-    parseTransactionLine(dateTime, s)
-      .orElse(parseExchangeLine(dateTime, s))
+      parseExchangeLine(dateTime, s)
+        .orElse(parseTransactionLine(dateTime, s))
 
   def parseExchangeLine(dateTime: LocalDateTime, s: String): Either[String, LineItem.Exchange] =
     s.split("->").toList.map(_.trim) match {
-      case amountGiven :: amountReceivedWithMeta :: _ =>
+      case amountGiven :: amountReceivedWithMeta :: Nil =>
         amountReceivedWithMeta.split(",").toList match {
           case amountReceived :: maybeMeta =>
             val meta = maybeMeta match {
               case catAndTags :: notes =>
-                parseCategoryAndAnyTags(catAndTags).map { case (cat, tags) =>
+                parseCategoryAndAnyTags(catAndTags.trim).map { case (cat, tags) =>
                   (cat, tags, notes.mkString(","))
                 }
               case _ =>
-                // hardcoded defaults ftw!
                 Right(("exchange", List.empty, ""))
             }
 
@@ -91,7 +90,7 @@ case class SimpleInefficientParser() extends Parser[String] {
       case symbol :: _ if symbol.length == 1 =>
         Right(Currency(name = None, symbol = Some(symbol)))
       case name :: _ =>
-        Right(Currency(name = Some(name), symbol = None))
+        Right(Currency(name = Some(name).filterNot(_.isEmpty), symbol = None))
       case _ =>
         Left(s"Bad amount: $s")
     }

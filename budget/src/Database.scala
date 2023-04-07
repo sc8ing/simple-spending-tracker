@@ -17,9 +17,12 @@ trait Database {
   def insertLineItem(c: LineItem): Task[Int]
 }
 
-case class SQLDatabase(connManager: SQLConnManager) extends Database {
+case class SQLDatabase(
+  connManager: SQLConnManager,
+  defaultSettings: DefaultSettings
+) extends Database {
 
-  def setupDbIfNeeded: Task[Unit] = connManager.withConnection { conn =>
+  def setupDbIfNeeded: Task[Unit] = {
     val createTables: Task[Unit] = ZIO.foreach(List(
         """
       |CREATE TABLE IF NOT EXISTS currency (
@@ -47,6 +50,8 @@ case class SQLDatabase(connManager: SQLConnManager) extends Database {
         |  given_magnitude INTEGER NOT NULL,
         |  received_currency_id INTEGER NOT NULL,
         |  received_magnitude INTEGER NOT NULL,
+        |  category_id INTEGER NOT NULL,
+        |  notes TEXT NULL,
         |  created_at DATETIME NOT NULL,
         |  FOREIGN KEY (given_currency_id) REFERENCES currency (currency_id),
         |  FOREIGN KEY (received_currency_id) REFERENCES currency (currency_id)
@@ -80,7 +85,7 @@ case class SQLDatabase(connManager: SQLConnManager) extends Database {
         |  FOREIGN KEY (tag_id) REFERENCES tag (tag_id)
         |);
       """.stripMargin
-    ))(sql => ZIO.attempt(conn.createStatement().execute(sql))).unit
+    ))(sql => connManager.withConnection(conn => ZIO.attempt(conn.createStatement().execute(sql)))).unit
 
     val tablesExist: UIO[Boolean] = 
       ZIO.log("Checking if tables exist") *>
@@ -94,45 +99,49 @@ case class SQLDatabase(connManager: SQLConnManager) extends Database {
           ).as(false)
         )
 
+    val addDefaultCurrency = insertCurrency(Currency(
+      Some(defaultSettings.currencyName),
+      Some(defaultSettings.currencySymbol)
+    ))
+
     ZIO.ifZIO(tablesExist)(
       ZIO.log("DB already setup"),
-      ZIO.log("Setting up DB") *> createTables *> ZIO.log("DB setup successfully")
-    )
+      ZIO.log("Setting up DB") *> createTables
+    ) *> addDefaultCurrency *> ZIO.log("DB setup successfully")
   }
 
   def insert(sql: String, setParams: PreparedStatement => Unit): Task[Int] =
-    connManager.withConnection(conn =>
-      ZIO.log("Running SQL: " + sql) *>
-      ZIO.attempt {
-        val stat = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)
-        setParams(stat)
+    connManager.withConnection(conn => for {
+      stat <- ZIO.attempt(conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS))
+      _ <- ZIO.attempt(setParams(stat))
+      _ <- ZIO.log("Running SQL: " + stat.toString.replace('\n', ' '))
+      res <- ZIO.attempt {
         stat.executeUpdate()
         val rs = stat.getGeneratedKeys()
         val res = rs.getInt(1)
         rs.close()
         res
       }
-    )
+    } yield res)
 
   def getId(query: String, setParams: PreparedStatement => Unit): Task[Option[Int]] =
-    ZIO.log("Running SQL: " + query) *>
-    connManager.withConnection(conn =>
-      ZIO.attempt {
-        val stat = conn.prepareStatement(query)
-        setParams(stat)
+    connManager.withConnection(conn => for {
+      stat <- ZIO.attempt(conn.prepareStatement(query))
+      _ <- ZIO.attempt(setParams(stat))
+      _ <- ZIO.log("Running SQL: " + stat.toString.replace('\n', ' '))
+      res <- ZIO.attempt {
         val rs = stat.executeQuery()
         val res = if (rs.next()) Option(rs.getInt(1)) else None
+        if (rs.next()) throw new SQLException("Expected only one result!")
         rs.close()
         res
       }
-    )
+    } yield res)
 
   def getOrInsert(table: String, columnParams: List[(String, Any)]): Task[Int] = for {
     columns <- ZIO.succeed(columnParams.map(_._1))
     setParams = (ps: PreparedStatement) => columnParams.zipWithIndex.foreach {
       case ((_, value), index) =>
-        // java.lang.System.out.println(ps.toString())
-        // java.lang.System.out.println(s"Setting param ${index + 1} to $value")
         ps.setObject(index + 1, value)
     }
     doInsert = insert(
@@ -147,7 +156,32 @@ case class SQLDatabase(connManager: SQLConnManager) extends Database {
   } yield id
 
   override def insertCurrency(c: Currency): Task[Int] =
-    getOrInsert("currency", List("name" -> c.name, "symbol" -> c.symbol))
+    // Not using getOrInsert here because we need to use OR
+    getId(
+      "SELECT * FROM currency WHERE name = ? OR symbol = ?",
+      (ps: PreparedStatement) => {
+        ps.setString(1, c.name.orNull)
+        ps.setString(2, c.symbol.orNull)
+      }
+    ).flatMap {
+      case Some(id) =>
+        ZIO.succeed(id)
+      case None =>
+        (c.name, c.symbol) match {
+          case (Some(name), Some(symbol)) =>
+            insert(
+              "INSERT INTO currency (name, symbol) VALUES (?, ?)",
+              (ps: PreparedStatement) => {
+                ps.setString(1, name)
+                ps.setString(2, symbol)
+              }
+            )
+          case (name, symbol) =>
+            ZIO.fail(new IllegalArgumentException(
+              s"New currency used without both name & symbol, cannot create in db: name = $name, symbol = $symbol"
+            ))
+        }
+    }
 
   override def insertTag(tagName: String): Task[Int] =
     getOrInsert("tag", List("name" -> tagName))
@@ -161,6 +195,7 @@ case class SQLDatabase(connManager: SQLConnManager) extends Database {
   }
 
   def insertExchange(ex: LineItem.Exchange): Task[Int] = for {
+    _ <- ZIO.log(s"Inserting exchange: $ex")
     catId <- insertCategory(ex.category)
     givenCurId <- insertCurrency(ex.givenAmount.currency)
     receivedCurId <- insertCurrency(ex.receivedAmount.currency)
@@ -171,6 +206,8 @@ case class SQLDatabase(connManager: SQLConnManager) extends Database {
         "given_magnitude" -> ex.givenAmount.magnitude,
         "received_currency_id" -> receivedCurId,
         "received_magnitude" -> ex.receivedAmount.magnitude,
+        "category_id" -> catId,
+        "notes" -> ex.notes,
         "created_at" -> new Time(ex.datetime.atZone(ZoneId.systemDefault).toInstant.toEpochMilli)
       )
     )
@@ -198,7 +235,7 @@ case class SQLDatabase(connManager: SQLConnManager) extends Database {
   } yield txnId
 }
 object SQLDatabase {
-  val liveLayer = ZLayer.fromFunction(SQLDatabase(_))
+  val liveLayer = ZLayer.fromFunction(SQLDatabase(_, _))
 }
 
 trait SQLConnManager {
@@ -214,9 +251,10 @@ case class SQLiteConnManager(config: SQLiteConfig) extends SQLConnManager {
           .tap(conn => ZIO.attempt(conn.setAutoCommit(false)))
       ) {
         case (conn, Exit.Success(_)) =>
+          ZIO.log("Committing transaction") *>
           ZIO.succeed { conn.commit(); conn.close() }
         case (conn, Exit.Failure(c)) =>
-          ZIO.logCause(c) *>
+          ZIO.logCause("Rolling back transaction", c) *>
             ZIO.succeed { conn.rollback(); conn.close() }
       }
     ZIO.scoped(manageConn.flatMap(f))
