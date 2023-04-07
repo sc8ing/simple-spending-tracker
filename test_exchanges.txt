@@ -1,0 +1,13 @@
+1/12/23
+100$ -> 50u uruguayans, cat1 tag1, some notes
+100$ -> 50u, cat1 tag1
+
+1/15/23
+40u -> 80$, exchange
+
+-- test comment
+1/16/23
+-- another one
+50$ -> 20u, exchange tag1
+
+
