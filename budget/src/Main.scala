@@ -6,11 +6,13 @@ import zio._
 import models._
 
 object MainApp extends ZIOAppDefault {
-  val app = for {
-    _ <- Console.printLine("Running")
-    _ <- Database.setupDbIfNeeded
-    numLoaded <- loadTransactionsToDb
-    _ <- Console.printLine(s"Loaded $numLoaded line items")
+  type AppEnv = SQLConnManager with Database with UserInteractor with Parser[String] with Adjuster[LineItem]
+
+  val app: RIO[AppEnv, Unit] = for {
+    _         <- Console.printLine("Running")
+    _         <- SQLConnManager.withConnection[AppEnv, Unit](Database.setupDbIfNeeded)
+    numLoaded <- SQLConnManager.withConnection[AppEnv, Int](loadTransactionsToDb)
+    _         <- Console.printLine(s"Loaded $numLoaded line items")
   } yield ()
 
   val loadTransactionsToDb = for {
@@ -21,9 +23,9 @@ object MainApp extends ZIOAppDefault {
     _                 <- ZIO.foreachDiscard(adjustedLineItems)(Database.insertLineItem)
   } yield adjustedLineItems.size
 
-  val makeDb = ZLayer.service[AppConfig].map(conf => ZEnvironment(conf.get.dbSettings)).flatMap(c => c.get match {
+  val makeDbUtils = ZLayer.service[AppConfig].map(conf => ZEnvironment(conf.get.dbSettings)).flatMap(c => c.get match {
     case DatabaseSettings.SQLiteSettings(dbFilePath) =>
-      ZLayer.make[Database](
+      ZLayer.make[Database with SQLConnManager](
         AppConfig.defaultLoadOrCreate >>> ZLayer.fromFunction((c: AppConfig) => c.defaultSettings),
         ZLayer.succeed(SQLiteConfig(new File(dbFilePath))),
         SQLDatabase.liveLayer,
@@ -32,16 +34,9 @@ object MainApp extends ZIOAppDefault {
   })
 
   def run =
-    app.provideLayer(ZLayer.make[
-      AppConfig with
-      DefaultSettings with
-      Database with
-      Parser[String] with
-      Adjuster[LineItem] with
-      UserInteractor
-    ](
+    app.provideLayer(ZLayer.make[AppEnv](
       AppConfig.defaultLoadOrCreate >+> ZLayer.fromFunction((c: AppConfig) => c.defaultSettings),
-      makeDb,
+      makeDbUtils,
       SimpleInefficientParser.liveLayer,
       QuestionAnswerAdjuster.liveLayer,
       CLIUserInteractor.liveLayer
