@@ -85,11 +85,11 @@ case class SimpleInefficientParser() extends Parser[String] {
     val magnitudeString = s.trim.takeWhile(c => c.isDigit || c == '.')
 
     def currency(magLength: Int) = s.drop(magLength).trim.split(" ").toList match {
-      case symbol :: name :: _ if symbol.length == 1 =>
+      case symbol :: name :: Nil if symbol.length == 1 =>
         Right(Currency(name = Some(name), symbol = Some(symbol)))
-      case symbol :: _ if symbol.length == 1 =>
+      case symbol :: Nil if symbol.length == 1 =>
         Right(Currency(name = None, symbol = Some(symbol)))
-      case name :: _ =>
+      case name :: Nil =>
         Right(Currency(name = Some(name).filterNot(_.isEmpty), symbol = None))
       case _ =>
         Left(s"Bad amount: $s")
