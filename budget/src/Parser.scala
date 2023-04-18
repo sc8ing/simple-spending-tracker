@@ -5,6 +5,7 @@ import java.time.{LocalDate, LocalDateTime}
 import scala.util.Try
 import zio.ZLayer
 import zio.macros.accessible
+import scala.collection.JavaConverters._
 
 import models._
 
@@ -23,7 +24,7 @@ case class SimpleInefficientParser() extends Parser[String] {
         err
     }
 
-  def parseLineItemBlock(s: String): Either[String, List[LineItem]] = s.lines.toList.asInstanceOf[List[String]] match {
+  def parseLineItemBlock(s: String): Either[String, List[LineItem]] = s.lines.toList.asScala.toList match {
     case date :: lineItems =>
       parseDate(date).flatMap(lineDate =>
         lineItems.foldLeft[Either[String, List[LineItem]]](Right(List.empty)) {
@@ -82,7 +83,10 @@ case class SimpleInefficientParser() extends Parser[String] {
     }
 
   def parseAmountWithOptionalCurrency(s: String): Either[String, Amount] = {
-    val magnitudeString = s.trim.takeWhile(c => c.isDigit || c == '.')
+    val isIncome = s.trim.startsWith("+")
+    val magnitudeString = s.trim
+        .drop(if (isIncome) 1 else 0) // drop leading '+'
+        .takeWhile(c => c.isDigit || c == '.')
 
     def currency(magLength: Int) = s.drop(magLength).trim.split(" ").toList match {
       case symbol :: name :: Nil if symbol.length == 1 =>
@@ -96,9 +100,11 @@ case class SimpleInefficientParser() extends Parser[String] {
     }
 
     for {
-      mag <- Try(magnitudeString.toDouble).toEither.left.map(_.toString)
-      cur <- currency(magnitudeString.length)
-    } yield Amount(cur, mag)
+      mag <- Try(magnitudeString.toDouble).toEither.left.map(t => 
+        s"Couldn't convert '$magnitudeString' to double in '$s': $t"
+      )
+      cur <- currency(magnitudeString.length + (if (isIncome) 1 else 0))
+    } yield Amount(cur, mag * (if (isIncome) -1 else 1)) // treat income as a negative expense
   }
 
   def parseCategoryAndAnyTags(s: String): Either[String, (String, List[String])] =
