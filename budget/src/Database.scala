@@ -27,8 +27,8 @@ case class SQLDatabase(
         """
       |CREATE TABLE IF NOT EXISTS currency (
         |  currency_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        |  name TEXT NOT NULL,
-        |  symbol TEXT NOT NULL
+        |  name TEXT NULL,
+        |  symbol TEXT NULL
         |);
       """.stripMargin,
       """
@@ -126,19 +126,23 @@ case class SQLDatabase(
       }
     } yield res)
 
-  def getId(query: String, setParams: PreparedStatement => Unit): RIO[Connection, Option[Int]] =
+  def runQuery(query: String, setParams: PreparedStatement => Unit): RIO[Connection with Scope, ResultSet] =
     ZIO.serviceWithZIO[Connection](conn => for {
       stat <- ZIO.attempt(conn.prepareStatement(query))
       _ <- ZIO.attempt(setParams(stat))
       _ <- ZIO.log("Running SQL: " + stat.toString.replace('\n', ' '))
-      res <- ZIO.attempt {
-        val rs = stat.executeQuery()
-        val res = if (rs.next()) Option(rs.getInt(1)) else None
-        if (rs.next()) throw new SQLException("Expected only one result!")
-        rs.close()
-        res
-      }
+      res <- ZIO.acquireRelease(
+        ZIO.attempt(stat.executeQuery()))(
+        rs => ZIO.attempt(rs.close()).logError("Couldn't close result set").ignore
+      )
     } yield res)
+
+  def getId(query: String, setParams: PreparedStatement => Unit): RIO[Connection, Option[Int]] =
+    ZIO.scoped(runQuery(query, setParams).flatMap(rs => ZIO.attempt {
+      val res = if (rs.next()) Option(rs.getInt(1)) else None
+      if (rs.next()) throw new SQLException("Expected only one result!")
+      res
+    }))
 
   def getOrInsert(table: String, columnParams: List[(String, Any)]): RIO[Connection, Int] = for {
     columns <- ZIO.succeed(columnParams.map(_._1))
@@ -159,30 +163,55 @@ case class SQLDatabase(
 
   override def insertCurrency(c: Currency): RIO[Connection, Int] =
     // Not using getOrInsert here because we need to use OR
-    getId(
-      "SELECT * FROM currency WHERE name = ? OR symbol = ?",
+    ZIO.scoped(runQuery(
+      "SELECT currency_id, name, symbol FROM currency WHERE name = ? OR symbol = ?",
       (ps: PreparedStatement) => {
         ps.setString(1, c.name.orNull)
         ps.setString(2, c.symbol.orNull)
       }
-    ).flatMap {
-      case Some(id) =>
-        ZIO.succeed(id)
-      case None =>
-        (c.name, c.symbol) match {
-          case (Some(name), Some(symbol)) =>
-            insert(
-              "INSERT INTO currency (name, symbol) VALUES (?, ?)",
-              (ps: PreparedStatement) => {
-                ps.setString(1, name)
-                ps.setString(2, symbol)
-              }
-            )
-          case (name, symbol) =>
-            ZIO.fail(new IllegalArgumentException(
-              s"New currency used without both name & symbol, cannot create in db: name = $name, symbol = $symbol"
-            ))
-        }
+    ).map { rs =>
+      var idsOfCurrencies = List.empty[(Int, Option[String], Option[String])]
+      while (rs.next())
+        idsOfCurrencies = (
+            rs.getInt("currency_id"),
+            Option(rs.getString("name")),
+            Option(rs.getString("symbol"))
+          ) +: idsOfCurrencies
+      idsOfCurrencies
+    }).flatMap {
+      case (id, dbName, dbSym) :: Nil =>
+        ZIO.when(c.name.exists(_ != dbName.orNull))(
+          ZIO.log(s"Updating currency $id because name used is not what was stored (${c.name} != $dbName)") *>
+          ZIO.scoped(runQuery(
+            "UPDATE currency SET name = ? WHERE currency_id = ?",
+            (ps: PreparedStatement) => {
+              ps.setString(1, c.name.orNull)
+              ps.setInt(2, id)
+            }
+          ))
+        ) *> ZIO.when(c.symbol.exists(_ != dbSym.orNull))(
+          ZIO.log(s"Updating currency $id because symbol used is not what was stored (${c.symbol} != $dbSym)") *>
+          ZIO.scoped(runQuery(
+            "UPDATE currency SET symbol = ? WHERE currency_id = ?",
+            (ps: PreparedStatement) => {
+              ps.setString(1, c.symbol.orNull)
+              ps.setInt(2, id)
+            }
+          ))
+        ) *> ZIO.succeed(id)
+
+      case Nil =>
+        ZIO.log(s"Adding new currency $c") *>
+        insert(
+          "INSERT INTO currency (name, symbol) VALUES (?, ?)",
+          (ps: PreparedStatement) => {
+            ps.setString(1, c.name.orNull)
+            ps.setString(2, c.symbol.orNull)
+          }
+        )
+
+      case o =>
+        ZIO.fail(new Exception(s"Ambiguous currency $c: $o"))
     }
 
   override def insertTag(tagName: String): RIO[Connection, Int] =
