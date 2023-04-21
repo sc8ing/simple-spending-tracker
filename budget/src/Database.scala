@@ -126,19 +126,21 @@ case class SQLDatabase(
       }
     } yield res)
 
-  def runQuery(query: String, setParams: PreparedStatement => Unit): RIO[Connection with Scope, ResultSet] =
+  def runQuery(sql: String, setParams: PreparedStatement => Unit, isRead: Boolean = true): RIO[Connection with Scope, Option[ResultSet]] =
     ZIO.serviceWithZIO[Connection](conn => for {
-      stat <- ZIO.attempt(conn.prepareStatement(query))
+      stat <- ZIO.attempt(conn.prepareStatement(sql))
       _ <- ZIO.attempt(setParams(stat))
       _ <- ZIO.log("Running SQL: " + stat.toString.replace('\n', ' '))
       res <- ZIO.acquireRelease(
-        ZIO.attempt(stat.executeQuery()))(
-        rs => ZIO.attempt(rs.close()).logError("Couldn't close result set").ignore
-      )
+        ZIO.attempt(if (isRead) Some(stat.executeQuery())
+                  else        { stat.executeUpdate(); None })) {
+        case None => ZIO.unit
+        case Some(rs) => ZIO.attempt(rs.close()).logError("Couldn't close result set").ignore
+      }
     } yield res)
 
   def getId(query: String, setParams: PreparedStatement => Unit): RIO[Connection, Option[Int]] =
-    ZIO.scoped(runQuery(query, setParams).flatMap(rs => ZIO.attempt {
+    ZIO.scoped(runQuery(query, setParams).flatMap(ZIO.getOrFail(_)).flatMap(rs => ZIO.attempt {
       val res = if (rs.next()) Option(rs.getInt(1)) else None
       if (rs.next()) throw new SQLException("Expected only one result!")
       res
@@ -169,7 +171,7 @@ case class SQLDatabase(
         ps.setString(1, c.name.orNull)
         ps.setString(2, c.symbol.orNull)
       }
-    ).map { rs =>
+    ).flatMap(ZIO.getOrFail(_)).map { rs =>
       var idsOfCurrencies = List.empty[(Int, Option[String], Option[String])]
       while (rs.next())
         idsOfCurrencies = (
@@ -187,7 +189,8 @@ case class SQLDatabase(
             (ps: PreparedStatement) => {
               ps.setString(1, c.name.orNull)
               ps.setInt(2, id)
-            }
+            },
+            isRead = false
           ))
         ) *> ZIO.when(c.symbol.exists(_ != dbSym.orNull))(
           ZIO.log(s"Updating currency $id because symbol used is not what was stored (${c.symbol} != $dbSym)") *>
@@ -196,7 +199,8 @@ case class SQLDatabase(
             (ps: PreparedStatement) => {
               ps.setString(1, c.symbol.orNull)
               ps.setInt(2, id)
-            }
+            },
+            isRead = false
           ))
         ) *> ZIO.succeed(id)
 
