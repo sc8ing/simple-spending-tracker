@@ -43,7 +43,7 @@ TagList ::= a space-separated list of strings without whitespace
 Description ::= anything
 ```
 
-When a currency other than the default specified in the config file is used, the program will check if that currency's symbol or name has been defined. If a new currency symbol is used without a full name specified (or vice versa), the program will stop and require the first use of a new currency to specify both the short symbol and full name.
+When a currency other than the default specified in the config file is used, the program will check if that currency's symbol or name has been defined. If either the symbol or name exists, the line will be linked with that currency. If a symbol exists in the database but not a full name for it (or vice versa) the symbol or name used will be updated to what was written in the line.
 
 Here's an example of how contents of a text file for spending tracking can be formatted:
 
