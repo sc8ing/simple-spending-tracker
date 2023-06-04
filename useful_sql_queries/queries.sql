@@ -2,12 +2,11 @@
 -- Monthly Reports
 ---------------------------------------------------------------------------------------------------
 create temp table vars (varname text, varval text)
-insert into vars values ('date_start', date('now', '-2 month')), ('date_stop', date('now'))
+insert into vars values ('date_start', date('now', '-2 years')), ('date_stop', date('now'))
 
-select * from vars where varval between date('now', '-1 year') and date('now', '+1 month')
+update vars set varval = '2023-03-31' where varname = 'date_start'
 
-update vars set varval = date('now', '-2 month') where varname = 'date_start'
-update vars set varval = date('now', '-1 month') where varname = 'date_stop'
+update vars set varval = '2023-05-01' where varname = 'date_stop'
 
 -- exchanges
 select  cat.name as category,
@@ -93,6 +92,17 @@ where date(txn.created_at / 1000, 'unixepoch')
 group by 1, 2, 3
 order by cat.name, sum(txn.amount) desc
 
+-- net
+select  cur.name as currency,
+		sum(txn.amount)
+from txn
+join currency cur on cur.currency_id = txn.currency_id
+where date(txn.created_at / 1000, 'unixepoch')
+	between (select varval from vars where varname = 'date_start')
+	and (select varval from vars where varname = 'date_stop')
+--and txn.amount > 0
+group by cur.name
+
 ---------------------------------------------------------------------------------------------------
 -- individual lookups
 ---------------------------------------------------------------------------------------------------
@@ -100,9 +110,22 @@ select *
 from txn txn
 join category cat on txn.category_id = cat.category_id
 join currency cur on txn.currency_id = cur.currency_id
-where txn.txn_id = 1176
+where cat.name = 'selfcare'
 
 select tt.txn_id, tag.name 
 from txn_tag tt 
 join tag on tag.tag_id = tt.tag_id 
 where tt.txn_id = 1176
+
+
+---------------------------------------------------------------------------------------------------
+-- fixes
+---------------------------------------------------------------------------------------------------
+-- adjust category
+select c.category_id from category c where name = 'travel'
+update txn set category_id = 3 where txn_id = 1586
+-- adjust tags
+select tag_id from tag where name = 'car'
+insert into txn_tag (txn_id, tag_id) values (1586, 6)
+
+
