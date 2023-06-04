@@ -20,7 +20,7 @@ trait UserInteractor {
 }
 case class CLIUserInteractor() extends UserInteractor {
   def promptBool(query: String): Task[Boolean] = for {
-    input <- Console.readLine(query)
+    input <- Console.readLine(query + " (true/false)")
     bool <- ZIO.attempt(input.toBoolean).catchSome {
       case e: IllegalArgumentException =>
         Console.printLine("Try either 'true' or 'false'") *> promptBool(query)
