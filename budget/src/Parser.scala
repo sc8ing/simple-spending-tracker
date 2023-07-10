@@ -89,6 +89,8 @@ case class SimpleInefficientParser() extends Parser[String] {
         .takeWhile(c => c.isDigit || c == '.')
 
     def currency(magLength: Int) = s.drop(magLength).trim.split(" ").toList match {
+      case name :: symbol :: Nil if name.length <= symbol.length =>
+        Left(s"Bad amount: $s (symbol must be shorter than name, order is name then symbol, or just symbol without a name)")
       case name :: symbol :: Nil =>
         Right(Currency(name = Some(name), symbol = Some(symbol)))
       case symbol :: Nil =>

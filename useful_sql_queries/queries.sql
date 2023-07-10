@@ -1,12 +1,15 @@
 ---------------------------------------------------------------------------------------------------
 -- Monthly Reports
 ---------------------------------------------------------------------------------------------------
-create temp table vars (varname text, varval text)
+--create temp table vars (varname text, varval text)
+--delete from vars
 insert into vars values ('date_start', date('now', '-2 years')), ('date_stop', date('now'))
 
-update vars set varval = '2023-03-31' where varname = 'date_start'
+update vars set varval = '2023-06-03' where varname = 'date_start'
 
-update vars set varval = '2023-05-01' where varname = 'date_stop'
+update vars set varval = '2023-07-08' where varname = 'date_stop'
+
+select * from vars
 
 -- exchanges
 select  cat.name as category,
@@ -17,9 +20,9 @@ select  cat.name as category,
 		date(ex.created_at / 1000, 'unixepoch'),
 		ex.notes 
 from exchange ex
-join category cat on cat.category_id = ex.category_id
-join currency curout on curout.currency_id = ex.given_currency_id
-join currency curin on curin.currency_id = ex.received_currency_id
+left join category cat on cat.category_id = ex.category_id
+left join currency curout on curout.currency_id = ex.given_currency_id
+left join currency curin on curin.currency_id = ex.received_currency_id
 where date(ex.created_at / 1000, 'unixepoch')
 	between (select varval from vars where varname = 'date_start')
 	and (select varval from vars where varname = 'date_stop')
@@ -64,7 +67,9 @@ order by date(txn.created_at / 1000, 'unixepoch') desc
 -- category breakdown
 select  cur.name as currency,
 		cat.name as category,
-		round(sum(txn.amount) / 1)
+		round(sum(txn.amount) / 1),
+		round(sum(txn.amount) / 4),
+		round(sum(txn.amount) / 31)
 from txn
 join currency cur on cur.currency_id = txn.currency_id 
 join category cat on cat.category_id = txn.category_id
@@ -97,9 +102,10 @@ select  cur.name as currency,
 		sum(txn.amount)
 from txn
 join currency cur on cur.currency_id = txn.currency_id
-where date(txn.created_at / 1000, 'unixepoch')
-	between (select varval from vars where varname = 'date_start')
-	and (select varval from vars where varname = 'date_stop')
+--where
+--	date(txn.created_at / 1000, 'unixepoch')
+--	between (select varval from vars where varname = 'date_start')
+--	and (select varval from vars where varname = 'date_stop')
 --and txn.amount > 0
 group by cur.name
 
@@ -115,7 +121,8 @@ where cat.name = 'selfcare'
 select tt.txn_id, tag.name 
 from txn_tag tt 
 join tag on tag.tag_id = tt.tag_id 
-where tt.txn_id = 1176
+where tag.name = 'coffee'
+-- tt.txn_id = 1176
 
 
 ---------------------------------------------------------------------------------------------------
