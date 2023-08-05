@@ -5,7 +5,7 @@
 --delete from vars
 insert into vars values ('date_start', date('now', '-2 years')), ('date_stop', date('now'))
 
-update vars set varval = '2023-06-03' where varname = 'date_start'
+update vars set varval = '2000-06-03' where varname = 'date_start'
 
 update vars set varval = '2023-07-08' where varname = 'date_stop'
 
