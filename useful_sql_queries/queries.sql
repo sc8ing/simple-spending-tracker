@@ -1,13 +1,12 @@
----------------------------------------------------------------------------------------------------
 -- Monthly Reports
 ---------------------------------------------------------------------------------------------------
 --create temp table vars (varname text, varval text)
 --delete from vars
 insert into vars values ('date_start', date('now', '-2 years')), ('date_stop', date('now'))
 
-update vars set varval = '2000-06-03' where varname = 'date_start'
+update vars set varval = '2023-08-25' where varname = 'date_start'
 
-update vars set varval = '2023-07-08' where varname = 'date_stop'
+update vars set varval = '2023-10-05' where varname = 'date_stop'
 
 select * from vars
 
@@ -68,8 +67,8 @@ order by date(txn.created_at / 1000, 'unixepoch') desc
 select  cur.name as currency,
 		cat.name as category,
 		round(sum(txn.amount) / 1),
-		round(sum(txn.amount) / 4),
-		round(sum(txn.amount) / 31)
+		round(sum(txn.amount) / 3),
+		round(sum(txn.amount) / 20)
 from txn
 join currency cur on cur.currency_id = txn.currency_id 
 join category cat on cat.category_id = txn.category_id
@@ -84,7 +83,7 @@ order by cur.name, sum(txn.amount) desc
 select  cur.name as currency,
 		cat.name as category,
 		tag.name as tag,
-		round(sum(txn.amount) / 1)
+		round(sum(txn.amount) / 20)
 from txn
 join currency cur on cur.currency_id = txn.currency_id 
 join category cat on cat.category_id = txn.category_id 
@@ -102,11 +101,11 @@ select  cur.name as currency,
 		sum(txn.amount)
 from txn
 join currency cur on cur.currency_id = txn.currency_id
---where
---	date(txn.created_at / 1000, 'unixepoch')
---	between (select varval from vars where varname = 'date_start')
---	and (select varval from vars where varname = 'date_stop')
---and txn.amount > 0
+where
+	date(txn.created_at / 1000, 'unixepoch')
+	between (select varval from vars where varname = 'date_start')
+	and (select varval from vars where varname = 'date_stop')
+and txn.amount > 0
 group by cur.name
 
 ---------------------------------------------------------------------------------------------------
