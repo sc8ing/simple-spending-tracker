@@ -1,12 +1,3 @@
-# backend duplicates
-*.class
-*.log
-.bsp/*
-.metals/*
-.bloop/*
-out/*
-
-# frontend duplicates
 node_modules/
 public/js
 /target

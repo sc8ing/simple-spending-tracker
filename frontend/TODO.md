@@ -1,0 +1,10 @@
+- zio http for scala backend
+    - GET /api/transaction
+    - POST /api/transaction
+    - GET / (home)
+    - GET /login
+    - POST /login
+- make docker image for server with frontend
+    - Dockerfile sets ENV variables
+    - docker volume create --name mysqldb
+- deploy.sh script to vultr
