@@ -2,18 +2,15 @@ package budget
 
 import zio._
 import zio.stream._
-import zio.macros.accessible
 
 import models._
 import models.LineItem._
 
-@accessible
 trait Adjuster[A] {
   def adjust(a: A): Task[A]
 }
 
 /** Theoretically going to use this same thing over a web interface or something */
-@accessible
 trait UserInteractor {
   def promptBool(query: String): Task[Boolean]
   def promptInput(query: String): Stream[Throwable, String]

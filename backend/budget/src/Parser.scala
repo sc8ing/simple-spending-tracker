@@ -4,12 +4,10 @@ import java.time.format.DateTimeFormatter
 import java.time.{LocalDate, LocalDateTime}
 import scala.util.Try
 import zio.ZLayer
-import zio.macros.accessible
 import scala.collection.JavaConverters._
 
 import models._
 
-@accessible
 trait Parser[Err] {
   def parseLineItemBlocks(s: String): Either[Err, List[LineItem]]
 }

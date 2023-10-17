@@ -4,11 +4,9 @@ import java.io.File
 import java.sql.{PreparedStatement, Connection, DriverManager, ResultSet, SQLException, Statement, Time}
 import java.time.ZoneId
 import zio._
-import zio.macros.accessible
 
 import models._
 
-@accessible
 trait Database {
   def setupDbIfNeeded:             RIO[Connection, Unit]
   def insertCurrency(c: Currency): RIO[Connection, Int]
@@ -273,7 +271,6 @@ object SQLDatabase {
   val liveLayer = ZLayer.fromFunction(SQLDatabase(_, _))
 }
 
-@accessible
 trait SQLConnManager {
   def withConnection[R, A](f: RIO[R with Connection, A]): RIO[R, A]
 }

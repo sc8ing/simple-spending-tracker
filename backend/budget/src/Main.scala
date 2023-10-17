@@ -6,39 +6,50 @@ import zio._
 import models._
 
 object MainApp extends ZIOAppDefault {
-  type AppEnv = SQLConnManager with Database with UserInteractor with Parser[String] with Adjuster[LineItem]
+  enum AppMode:
+    case StdInLoader, Server
 
-  val app: RIO[AppEnv, Unit] = for {
-    _         <- Console.printLine("Running")
-    _         <- SQLConnManager.withConnection[AppEnv, Unit](Database.setupDbIfNeeded)
-    numLoaded <- SQLConnManager.withConnection[AppEnv, Int](loadTransactionsToDb)
-    _         <- Console.printLine(s"Loaded $numLoaded line items")
-  } yield ()
+  type StdInLoaderAppEnv = UserInteractor & LineLoader
+  val stdinLoader: RIO[StdInLoaderAppEnv, Unit] =
+    ZIO.serviceWithZIO[UserInteractor](_.promptInput("Input transactions: ").runCollect)
+      .flatMap(input => ZIO.serviceWithZIO[LineLoader](_.loadFromString(input.mkString("\n"))))
 
-  val loadTransactionsToDb = for {
-    rawBlocks         <- UserInteractor.promptInput("Input transactions: ").runCollect
-    maybeParsed       <- Parser.parseLineItemBlocks[String](rawBlocks.mkString("\n"))
-    lineItems         <- ZIO.fromEither(maybeParsed).mapError(new Throwable(_))
-    adjustedLineItems <- ZIO.foreach(lineItems)(Adjuster.adjust).map(_.reverse)
-    _                 <- ZIO.foreachDiscard(adjustedLineItems)(Database.insertLineItem)
-  } yield adjustedLineItems.size
+  case class CliOptions(appMode: AppMode)
+  object CliOptions:
+    def fromCliArgs(args: Chunk[String]): Task[CliOptions] = args.toList match
+      case "--stdin" :: Nil => ZIO.succeed(CliOptions(AppMode.StdInLoader))
+      case "--server" :: Nil => ZIO.succeed(CliOptions(AppMode.Server))
+      case _ => ZIO.dieMessage("Either --stdin or --server expected")
 
-  val makeDbUtils = ZLayer.service[AppConfig].map(conf => ZEnvironment(conf.get.dbSettings)).flatMap(c => c.get match {
-    case DatabaseSettings.SQLiteSettings(dbFilePath) =>
-      ZLayer.make[Database with SQLConnManager](
-        AppConfig.defaultLoadOrCreate >>> ZLayer.fromFunction((c: AppConfig) => c.defaultSettings),
-        ZLayer.succeed(SQLiteConfig(new File(dbFilePath))),
-        SQLDatabase.liveLayer,
-        SQLiteConnManager.liveLayer
-      )
-  })
+  val dbUtilsLayer: RLayer[AppConfig, Database & SQLConnManager] =
+    ZLayer.service[AppConfig].map(conf => ZEnvironment(conf.get.dbSettings)).flatMap(c => c.get match {
+      case DatabaseSettings.SQLiteSettings(dbFilePath) =>
+        ZLayer.make[Database & SQLConnManager](
+          AppConfig.defaultLoadOrCreate >>> ZLayer.fromFunction((c: AppConfig) => c.defaultSettings),
+          ZLayer.succeed(SQLiteConfig(new File(dbFilePath))),
+          SQLDatabase.liveLayer,
+          SQLiteConnManager.liveLayer
+        )
+    })
 
-  def run =
-    app.provideLayer(ZLayer.make[AppEnv](
-      AppConfig.defaultLoadOrCreate >+> ZLayer.fromFunction((c: AppConfig) => c.defaultSettings),
-      makeDbUtils,
-      SimpleInefficientParser.liveLayer,
-      QuestionAnswerAdjuster.liveLayer,
-      CLIUserInteractor.liveLayer
-    ))
+  val preModeInit: RIO[ZIOAppArgs & SQLConnManager & Database, AppMode] =
+    getArgs.flatMap(CliOptions.fromCliArgs).map(_.appMode).tap(_ =>
+      ZIO.serviceWithZIO[SQLConnManager](_.withConnection(
+        ZIO.serviceWithZIO[Database](_.setupDbIfNeeded)
+      ))
+    )
+
+  def run = preModeInit.provideSome[ZIOAppArgs](AppConfig.defaultLoadOrCreate >>> dbUtilsLayer).flatMap:
+    case AppMode.StdInLoader =>
+      stdinLoader.provideLayer(ZLayer.make[StdInLoaderAppEnv](
+        CLIUserInteractor.liveLayer,
+        SqliteLineLoader.layer,
+        dbUtilsLayer,
+        SimpleInefficientParser.liveLayer,
+        QuestionAnswerAdjuster.liveLayer,
+        AppConfig.defaultLoadOrCreate,
+        ZLayer.fromFunction((c: AppConfig) => c.defaultSettings)
+      ))
+    case AppMode.Server =>
+      ZIO.dieMessage("server not implemented")
 }
