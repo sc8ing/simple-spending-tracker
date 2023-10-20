@@ -51,5 +51,10 @@ object MainApp extends ZIOAppDefault {
         ZLayer.fromFunction((c: AppConfig) => c.defaultSettings)
       ))
     case AppMode.Server =>
-      ZIO.dieMessage("server not implemented")
+      ZIO.serviceWithZIO[Server](_.runServer).provide(
+        HttpServer.liveLayer,
+        ZLayer.succeed(new Authenticator { def validateUserPass(u: String, p: String) = ZIO.succeed(u == p) }),
+        ZLayer.succeed(Clock.ClockLive),
+        ZLayer.succeed("somesecretkey")
+      )
 }
