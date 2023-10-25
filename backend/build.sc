@@ -14,4 +14,15 @@ object budget extends ScalaModule {
     ivy"org.xerial:sqlite-jdbc:3.41.2.0",
     ivy"com.github.jwt-scala::jwt-zio-json:9.4.4"
   )
+  /*
+    import $ivy.`dev.zio::zio:2.0.10`, zio._
+    import $ivy.`dev.zio::zio-http:3.0.0-RC2`, zio.http._
+    import $ivy.`dev.zio::zio-streams:2.0.10`
+    import $ivy.`dev.zio::zio-macros:2.0.10`
+    import $ivy.`dev.zio::zio-config:4.0.0-RC12`
+    import $ivy.`dev.zio::zio-config-magnolia:4.0.0-RC12`
+    import $ivy.`dev.zio::zio-config-typesafe:4.0.0-RC12`
+    import $ivy.`org.xerial:sqlite-jdbc:3.41.2.0`
+    import $ivy.`com.github.jwt-scala::jwt-zio-json:9.4.4`
+  */
 }

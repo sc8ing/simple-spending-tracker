@@ -39,7 +39,7 @@ object MainApp extends ZIOAppDefault {
       ))
     )
 
-  def run = preModeInit.provideSome[ZIOAppArgs](AppConfig.defaultLoadOrCreate >>> dbUtilsLayer).flatMap:
+  def run = preModeInit.provideSome[ZIOAppArgs](AppConfig.defaultLoadOrCreate >>> dbUtilsLayer).flatMap {
     case AppMode.StdInLoader =>
       stdinLoader.provideLayer(ZLayer.make[StdInLoaderAppEnv](
         CLIUserInteractor.liveLayer,
@@ -57,4 +57,5 @@ object MainApp extends ZIOAppDefault {
         ZLayer.succeed(Clock.ClockLive),
         ZLayer.succeed("somesecretkey")
       )
+  }
 }

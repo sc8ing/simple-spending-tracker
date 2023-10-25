@@ -6,6 +6,10 @@
     - GET / (home)
     - GET /login
     - POST /login
+    - fix jwt key so it's actually used
+    - make JWTs actually expire at some point
+    - debug logging doesn't work
+    - add other fields to jwts
 - make docker image for server with frontend
     - Dockerfile sets ENV variables
     - docker volume create --name mysqldb
