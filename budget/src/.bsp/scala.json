@@ -1,0 +1,26 @@
+{
+  "name": "scala",
+  "argv": [
+    "/home/jacob/.cache/coursier/arc/https/github.com/scala/scala3/releases/download/3.5.0/scala3-3.5.0-x86_64-pc-linux.tar.gz/scala3-3.5.0-x86_64-pc-linux/bin/scala-cli",
+    "--cli-default-scala-version",
+    "3.5.0",
+    "--repository",
+    "file:///home/jacob/.cache/coursier/arc/https/github.com/scala/scala3/releases/download/3.5.0/scala3-3.5.0-x86_64-pc-linux.tar.gz/scala3-3.5.0-x86_64-pc-linux/maven2",
+    "--prog-name",
+    "scala",
+    "bsp",
+    "--json-options",
+    "/home/jacob/Documents/code/budget/scala/budget-scala/backend/budget/src/.scala-build/ide-options-v2.json",
+    "--json-launcher-options",
+    "/home/jacob/Documents/code/budget/scala/budget-scala/backend/budget/src/.scala-build/ide-launcher-options.json",
+    "--envs-file",
+    "/home/jacob/Documents/code/budget/scala/budget-scala/backend/budget/src/.scala-build/ide-envs.json",
+    "/home/jacob/Documents/code/budget/scala/budget-scala/backend/budget/src/Adjuster.scala"
+  ],
+  "version": "1.4.0",
+  "bspVersion": "2.1.1",
+  "languages": [
+    "scala",
+    "java"
+  ]
+}

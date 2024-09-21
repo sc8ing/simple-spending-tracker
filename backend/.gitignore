@@ -1,6 +1,0 @@
-*.class
-*.log
-.bsp/*
-.metals/*
-.bloop/*
-out/*
