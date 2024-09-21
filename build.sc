@@ -7,8 +7,8 @@ object budget extends ScalaModule with ScalafixModule {
   def scalaVersion = "3.5.0"
   // def ammoniteVersion = "3.0.0-M0-5-0af4d9e7"
   def ivyDeps = Agg(
-    ivy"dev.zio::zio:2.0.10",
-    ivy"dev.zio::zio-http:3.0.0-RC2",
+    ivy"dev.zio::zio:2.1.9",
+    ivy"com.lihaoyi::cask:0.9.4",
     ivy"dev.zio::zio-streams:2.0.10",
     ivy"dev.zio::zio-macros:2.0.10",
     ivy"dev.zio::zio-config:4.0.0-RC12",
@@ -19,4 +19,5 @@ object budget extends ScalaModule with ScalafixModule {
   )
   // add -Wunused:imports compiler option
   def scalacOptions = Seq("-Wunused:imports")
+  def mainClass = Some("budget.Main")
 }

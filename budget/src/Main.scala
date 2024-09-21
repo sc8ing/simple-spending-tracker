@@ -6,7 +6,7 @@ import budget.models.*
 import zio.*
 import zio.ZIO.*
 
-object MainApp extends ZIOAppDefault {
+object Main extends ZIOAppDefault {
   enum AppMode:
     case StdInLoader, Server
 
@@ -52,11 +52,6 @@ object MainApp extends ZIOAppDefault {
         ZLayer.fromFunction((c: AppConfig) => c.defaultSettings)
       ))
     case AppMode.Server =>
-      serviceWithZIO[Server](_.runServer).provide(
-        HttpServer.liveLayer,
-        ZLayer.succeed(new Authenticator { def validateUserPass(u: String, p: String) = succeed(u == p) }),
-        ZLayer.succeed(Clock.ClockLive),
-        ZLayer.succeed("somesecretkey")
-      )
+      succeed(Server.main(Array.empty)).fork *> ZIO.sleep(Duration.Infinity)
   }
 }
