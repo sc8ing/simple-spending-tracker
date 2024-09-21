@@ -6,6 +6,7 @@ import java.time.ZoneId
 
 import budget.models.*
 import zio.*
+import zio.ZIO.*
 
 trait Database {
   def setupDbIfNeeded:             RIO[Connection, Unit]
@@ -21,7 +22,7 @@ case class SQLDatabase(
 ) extends Database {
 
   def setupDbIfNeeded: RIO[Connection, Unit] = {
-    val createTables: RIO[Connection, Unit] = ZIO.foreach(List(
+    val createTables: RIO[Connection, Unit] = foreach(List(
         """
       |CREATE TABLE IF NOT EXISTS currency (
         |  currency_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -83,17 +84,17 @@ case class SQLDatabase(
         |  FOREIGN KEY (tag_id) REFERENCES tag (tag_id)
         |);
       """.stripMargin
-    ))(sql => ZIO.serviceWithZIO[Connection](conn =>
-      ZIO.attempt(conn.createStatement().execute(sql))
+    ))(sql => serviceWithZIO[Connection](conn =>
+      attempt(conn.createStatement().execute(sql))
     )).unit
 
     val tablesExist: RIO[Connection, Boolean] = 
-      ZIO.log("Checking if tables exist") *>
-        ZIO.serviceWithZIO[Connection](conn => ZIO.attempt(
+      log("Checking if tables exist") *>
+        serviceWithZIO[Connection](conn => attempt(
           conn.prepareStatement("SELECT * FROM txn").executeQuery().close()
         ).as(true))
         .catchAllCause(e =>
-          ZIO.logCause(
+          logCause(
             "Assuming tables don't exist because of error reading from txn table",
             e
           ).as(false)
@@ -104,18 +105,18 @@ case class SQLDatabase(
       Some(defaultSettings.currencySymbol)
     ))
 
-    ZIO.ifZIO(tablesExist)(
-      ZIO.log("DB already setup"),
-      ZIO.log("Setting up DB") *> createTables
-    ) *> addDefaultCurrency *> ZIO.log("DB setup successfully")
+    ifZIO(tablesExist)(
+      log("DB already setup"),
+      log("Setting up DB") *> createTables
+    ) *> addDefaultCurrency *> log("DB setup successfully")
   }
 
   def insert(sql: String, setParams: PreparedStatement => Unit): RIO[Connection, Int] =
-    ZIO.serviceWithZIO[Connection](conn => for {
-      stat <- ZIO.attempt(conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS))
-      _ <- ZIO.attempt(setParams(stat))
-      _ <- ZIO.log("Running SQL: " + stat.toString.replace('\n', ' '))
-      res <- ZIO.attempt {
+    serviceWithZIO[Connection](conn => for {
+      stat <- attempt(conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS))
+      _ <- attempt(setParams(stat))
+      _ <- log("Running SQL: " + stat.toString.replace('\n', ' '))
+      res <- attempt {
         stat.executeUpdate()
         val rs = stat.getGeneratedKeys()
         val res = rs.getInt(1)
@@ -124,28 +125,28 @@ case class SQLDatabase(
       }
     } yield res)
 
-  def runQuery(sql: String, setParams: PreparedStatement => Unit, isRead: Boolean = true): RIO[Connection with Scope, Option[ResultSet]] =
-    ZIO.serviceWithZIO[Connection](conn => for {
-      stat <- ZIO.attempt(conn.prepareStatement(sql))
-      _ <- ZIO.attempt(setParams(stat))
-      _ <- ZIO.log("Running SQL: " + stat.toString.replace('\n', ' '))
-      res <- ZIO.acquireRelease(
-        ZIO.attempt(if (isRead) Some(stat.executeQuery())
+  def runQuery(sql: String, setParams: PreparedStatement => Unit, isRead: Boolean = true): RIO[Connection & Scope, Option[ResultSet]] =
+    serviceWithZIO[Connection](conn => for {
+      stat <- attempt(conn.prepareStatement(sql))
+      _ <- attempt(setParams(stat))
+      _ <- log("Running SQL: " + stat.toString.replace('\n', ' '))
+      res <- acquireRelease(
+        attempt(if (isRead) Some(stat.executeQuery())
                   else        { stat.executeUpdate(); None })) {
-        case None => ZIO.unit
-        case Some(rs) => ZIO.attempt(rs.close()).logError("Couldn't close result set").ignore
+        case None => unit
+        case Some(rs) => attempt(rs.close()).logError("Couldn't close result set").ignore
       }
     } yield res)
 
   def getId(query: String, setParams: PreparedStatement => Unit): RIO[Connection, Option[Int]] =
-    ZIO.scoped(runQuery(query, setParams).flatMap(ZIO.getOrFail(_)).flatMap(rs => ZIO.attempt {
+    scoped(runQuery(query, setParams).flatMap(getOrFail(_)).flatMap(rs => attempt {
       val res = if (rs.next()) Option(rs.getInt(1)) else None
       if (rs.next()) throw new SQLException("Expected only one result!")
       res
     }))
 
   def getOrInsert(table: String, columnParams: List[(String, Any)]): RIO[Connection, Int] = for {
-    columns <- ZIO.succeed(columnParams.map(_._1))
+    columns <- succeed(columnParams.map(_._1))
     setParams = (ps: PreparedStatement) => columnParams.zipWithIndex.foreach {
       case ((_, value), index) =>
         ps.setObject(index + 1, value)
@@ -158,18 +159,18 @@ case class SQLDatabase(
       s"SELECT * FROM $table WHERE " + columns.mkString(" = ? AND ") + " = ?",
       setParams
     )
-    id <- maybeId.fold(doInsert)(ZIO.succeed(_))
+    id <- maybeId.fold(doInsert)(succeed(_))
   } yield id
 
   override def insertCurrency(c: Currency): RIO[Connection, Int] =
     // Not using getOrInsert here because we need to use OR
-    ZIO.scoped(runQuery(
+    scoped(runQuery(
       "SELECT currency_id, name, symbol FROM currency WHERE name = ? OR symbol = ?",
       (ps: PreparedStatement) => {
         ps.setString(1, c.name.orNull)
         ps.setString(2, c.symbol.orNull)
       }
-    ).flatMap(ZIO.getOrFail(_)).map { rs =>
+    ).flatMap(getOrFail(_)).map { rs =>
       var idsOfCurrencies = List.empty[(Int, Option[String], Option[String])]
       while (rs.next())
         idsOfCurrencies = (
@@ -180,9 +181,9 @@ case class SQLDatabase(
       idsOfCurrencies
     }).flatMap {
       case (id, dbName, dbSym) :: Nil =>
-        ZIO.when(c.name.exists(_ != dbName.orNull))(
-          ZIO.log(s"Updating currency $id because name used is not what was stored (${c.name} != $dbName)") *>
-          ZIO.scoped(runQuery(
+        when(c.name.exists(_ != dbName.orNull))(
+          log(s"Updating currency $id because name used is not what was stored (${c.name} != $dbName)") *>
+          scoped(runQuery(
             "UPDATE currency SET name = ? WHERE currency_id = ?",
             (ps: PreparedStatement) => {
               ps.setString(1, c.name.orNull)
@@ -190,9 +191,9 @@ case class SQLDatabase(
             },
             isRead = false
           ))
-        ) *> ZIO.when(c.symbol.exists(_ != dbSym.orNull))(
-          ZIO.log(s"Updating currency $id because symbol used is not what was stored (${c.symbol} != $dbSym)") *>
-          ZIO.scoped(runQuery(
+        ) *> when(c.symbol.exists(_ != dbSym.orNull))(
+          log(s"Updating currency $id because symbol used is not what was stored (${c.symbol} != $dbSym)") *>
+          scoped(runQuery(
             "UPDATE currency SET symbol = ? WHERE currency_id = ?",
             (ps: PreparedStatement) => {
               ps.setString(1, c.symbol.orNull)
@@ -200,10 +201,10 @@ case class SQLDatabase(
             },
             isRead = false
           ))
-        ) *> ZIO.succeed(id)
+        ) *> succeed(id)
 
       case Nil =>
-        ZIO.log(s"Adding new currency $c") *>
+        log(s"Adding new currency $c") *>
         insert(
           "INSERT INTO currency (name, symbol) VALUES (?, ?)",
           (ps: PreparedStatement) => {
@@ -213,7 +214,7 @@ case class SQLDatabase(
         )
 
       case o =>
-        ZIO.fail(new Exception(s"Ambiguous currency $c: $o"))
+        fail(new Exception(s"Ambiguous currency $c: $o"))
     }
 
   override def insertTag(tagName: String): RIO[Connection, Int] =
@@ -228,11 +229,11 @@ case class SQLDatabase(
   }
 
   def insertExchange(ex: LineItem.Exchange): RIO[Connection, Int] = for {
-    _ <- ZIO.log(s"Inserting exchange: $ex")
+    _ <- log(s"Inserting exchange: $ex")
     catId <- insertCategory(ex.category)
     givenCurId <- insertCurrency(ex.givenAmount.currency)
     receivedCurId <- insertCurrency(ex.receivedAmount.currency)
-    tagIds <- ZIO.foreach(ex.tags)(insertTag)
+    tagIds <- foreach(ex.tags)(insertTag)
     exId <- getOrInsert(
       "exchange", List(
         "given_currency_id"    -> givenCurId,
@@ -244,7 +245,7 @@ case class SQLDatabase(
         "created_at"           -> new Time(ex.datetime.atZone(ZoneId.systemDefault).toInstant.toEpochMilli)
       )
     )
-    _ <- ZIO.foreach(tagIds)(tagId =>
+    _ <- foreach(tagIds)(tagId =>
       getOrInsert("exchange_tag", List("exchange_id" -> exId, "tag_id" -> tagId))
     )
   } yield exId
@@ -252,7 +253,7 @@ case class SQLDatabase(
   def insertTransaction(txn: LineItem.Transaction): RIO[Connection, Int] = for {
     catId <- insertCategory(txn.category)
     currencyId <- insertCurrency(txn.amount.currency)
-    tagIds <- ZIO.foreach(txn.tags)(insertTag)
+    tagIds <- foreach(txn.tags)(insertTag)
     txnId <- getOrInsert(
       "txn", List(
         "currency_id" -> currencyId,
@@ -262,7 +263,7 @@ case class SQLDatabase(
         "created_at"  -> new Time(txn.datetime.atZone(ZoneId.systemDefault).toInstant.toEpochMilli)
       )
     )
-    _ <- ZIO.foreach(tagIds)(tagId =>
+    _ <- foreach(tagIds)(tagId =>
       getOrInsert("txn_tag", List("txn_id" -> txnId, "tag_id" -> tagId))
     )
   } yield txnId
@@ -272,29 +273,29 @@ object SQLDatabase {
 }
 
 trait SQLConnManager {
-  def withConnection[R, A](f: RIO[R with Connection, A]): RIO[R, A]
+  def withConnection[R, A](f: RIO[R & Connection, A]): RIO[R, A]
 }
 
 case class SQLiteConfig(dbPath: File)
 
 case class SQLiteConnManager(config: SQLiteConfig) extends SQLConnManager {
-  def withConnection[R, A](f: RIO[R with Connection, A]): RIO[R, A] = {
-    val manageConn: RIO[Scope, Connection] = ZIO.acquireReleaseExit(
-        ZIO.attempt(DriverManager.getConnection("jdbc:sqlite:" + config.dbPath))
-          .tap(conn => ZIO.attempt(conn.setAutoCommit(false)))
+  def withConnection[R, A](f: RIO[R & Connection, A]): RIO[R, A] = {
+    val manageConn: RIO[Scope, Connection] = acquireReleaseExit(
+        attempt(DriverManager.getConnection("jdbc:sqlite:" + config.dbPath))
+          .tap(conn => attempt(conn.setAutoCommit(false)))
       ) {
         case (conn, Exit.Success(_)) =>
-          ZIO.log("Committing transaction") *>
-          ZIO.succeed { conn.commit(); conn.close() }
+          log("Committing transaction") *>
+          succeed { conn.commit(); conn.close() }
 
         case (conn, Exit.Failure(c)) =>
-          ZIO.logCause("Rolling back transaction", c) *>
-          ZIO.succeed { conn.rollback(); conn.close() }
+          logCause("Rolling back transaction", c) *>
+          succeed { conn.rollback(); conn.close() }
       }
     val effectWithConnSatisfied = manageConn.flatMap(conn =>
       f.provideSomeLayer[R](ZLayer.succeed(conn))
     )
-    ZIO.scoped[R](effectWithConnSatisfied)
+    scoped[R](effectWithConnSatisfied)
   }
 }
 object SQLiteConnManager {

@@ -4,6 +4,7 @@ import java.io.File
 
 import budget.models.*
 import zio.*
+import zio.ZIO.*
 
 object MainApp extends ZIOAppDefault {
   enum AppMode:
@@ -11,15 +12,15 @@ object MainApp extends ZIOAppDefault {
 
   type StdInLoaderAppEnv = UserInteractor & LineLoader
   val stdinLoader: RIO[StdInLoaderAppEnv, Unit] =
-    ZIO.serviceWithZIO[UserInteractor](_.promptInput("Input transactions: ").runCollect)
-      .flatMap(input => ZIO.serviceWithZIO[LineLoader](_.loadFromString(input.mkString("\n"))))
+    serviceWithZIO[UserInteractor](_.promptInput("Input transactions: ").runCollect)
+      .flatMap(input => serviceWithZIO[LineLoader](_.loadFromString(input.mkString("\n"))))
 
   case class CliOptions(appMode: AppMode)
   object CliOptions:
     def fromCliArgs(args: Chunk[String]): Task[CliOptions] = args.toList match
-      case "--stdin" :: Nil => ZIO.succeed(CliOptions(AppMode.StdInLoader))
-      case "--server" :: Nil => ZIO.succeed(CliOptions(AppMode.Server))
-      case _ => ZIO.dieMessage("Either --stdin or --server expected")
+      case "--stdin" :: Nil => succeed(CliOptions(AppMode.StdInLoader))
+      case "--server" :: Nil => succeed(CliOptions(AppMode.Server))
+      case _ => dieMessage("Either --stdin or --server expected")
 
   val dbUtilsLayer: RLayer[AppConfig, Database & SQLConnManager] =
     ZLayer.service[AppConfig].map(conf => ZEnvironment(conf.get.dbSettings)).flatMap(c => c.get match {
@@ -34,8 +35,8 @@ object MainApp extends ZIOAppDefault {
 
   val preModeInit: RIO[ZIOAppArgs & SQLConnManager & Database, AppMode] =
     getArgs.flatMap(CliOptions.fromCliArgs).map(_.appMode).tap(_ =>
-      ZIO.serviceWithZIO[SQLConnManager](_.withConnection(
-        ZIO.serviceWithZIO[Database](_.setupDbIfNeeded)
+      serviceWithZIO[SQLConnManager](_.withConnection(
+        serviceWithZIO[Database](_.setupDbIfNeeded)
       ))
     )
 
@@ -51,9 +52,9 @@ object MainApp extends ZIOAppDefault {
         ZLayer.fromFunction((c: AppConfig) => c.defaultSettings)
       ))
     case AppMode.Server =>
-      ZIO.serviceWithZIO[Server](_.runServer).provide(
+      serviceWithZIO[Server](_.runServer).provide(
         HttpServer.liveLayer,
-        ZLayer.succeed(new Authenticator { def validateUserPass(u: String, p: String) = ZIO.succeed(u == p) }),
+        ZLayer.succeed(new Authenticator { def validateUserPass(u: String, p: String) = succeed(u == p) }),
         ZLayer.succeed(Clock.ClockLive),
         ZLayer.succeed("somesecretkey")
       )
