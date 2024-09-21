@@ -9,6 +9,7 @@ object budget extends ScalaModule with ScalafixModule {
   def ivyDeps = Agg(
     ivy"dev.zio::zio:2.1.9",
     ivy"com.lihaoyi::cask:0.9.4",
+    ivy"com.lihaoyi::scalatags:0.13.1",
     ivy"dev.zio::zio-streams:2.0.10",
     ivy"dev.zio::zio-macros:2.0.10",
     ivy"dev.zio::zio-config:4.0.0-RC12",
