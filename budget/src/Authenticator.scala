@@ -1,6 +1,6 @@
 package budget
 
-import zio._
+import zio.*
 
 trait Authenticator {
   def validateUserPass(user: String, pass: String): Task[Boolean]

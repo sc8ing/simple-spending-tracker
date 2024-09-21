@@ -1,9 +1,7 @@
 package budget
 
-import java.io.File
-import zio._
-
-import models._
+import budget.models.*
+import zio.*
 
 trait LineLoader:
   def loadFromString(rawTxnLogs: String): Task[Unit]

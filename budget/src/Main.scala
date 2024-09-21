@@ -1,9 +1,9 @@
 package budget
 
 import java.io.File
-import zio._
 
-import models._
+import budget.models.*
+import zio.*
 
 object MainApp extends ZIOAppDefault {
   enum AppMode:

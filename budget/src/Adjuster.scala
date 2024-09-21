@@ -1,10 +1,9 @@
 package budget
 
-import zio._
-import zio.stream._
-
-import models._
-import models.LineItem._
+import budget.models.*
+import budget.models.LineItem.*
+import zio.*
+import zio.stream.*
 
 trait Adjuster[A] {
   def adjust(a: A): Task[A]

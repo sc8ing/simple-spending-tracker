@@ -1,7 +1,9 @@
+import $ivy.`com.goyeau::mill-scalafix::0.4.1`
 import $ivy.`com.lihaoyi::mill-contrib-bloop:$MILL_VERSION`
+import com.goyeau.mill.scalafix.ScalafixModule
 import mill._, scalalib._
-	
-object budget extends ScalaModule {
+
+object budget extends ScalaModule with ScalafixModule {
   def scalaVersion = "3.5.0"
   // def ammoniteVersion = "3.0.0-M0-5-0af4d9e7"
   def ivyDeps = Agg(
@@ -15,4 +17,6 @@ object budget extends ScalaModule {
     ivy"org.xerial:sqlite-jdbc:3.41.2.0",
     ivy"com.github.jwt-scala::jwt-zio-json:9.4.4"
   )
+  // add -Wunused:imports compiler option
+  def scalacOptions = Seq("-Wunused:imports")
 }

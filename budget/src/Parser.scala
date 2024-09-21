@@ -2,11 +2,11 @@ package budget
 
 import java.time.format.DateTimeFormatter
 import java.time.{LocalDate, LocalDateTime}
+import scala.collection.JavaConverters.*
 import scala.util.Try
-import zio.ZLayer
-import scala.collection.JavaConverters._
 
-import models._
+import budget.models.*
+import zio.ZLayer
 
 trait Parser[Err] {
   def parseLineItemBlocks(s: String): Either[Err, List[LineItem]]

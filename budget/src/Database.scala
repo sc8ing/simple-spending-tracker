@@ -1,11 +1,11 @@
 package budget
 
 import java.io.File
-import java.sql.{PreparedStatement, Connection, DriverManager, ResultSet, SQLException, Statement, Time}
+import java.sql.{Connection, DriverManager, PreparedStatement, ResultSet, SQLException, Statement, Time}
 import java.time.ZoneId
-import zio._
 
-import models._
+import budget.models.*
+import zio.*
 
 trait Database {
   def setupDbIfNeeded:             RIO[Connection, Unit]

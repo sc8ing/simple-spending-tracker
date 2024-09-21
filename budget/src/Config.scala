@@ -2,11 +2,11 @@ package budget
 
 import java.io.File
 import java.nio.file.Paths
-import zio._
-import zio.config.magnolia._
-import zio.config.typesafe._
 
-import models._
+import budget.models.*
+import zio.*
+import zio.config.magnolia.*
+import zio.config.typesafe.*
 
 sealed trait DatabaseSettings
 object DatabaseSettings {

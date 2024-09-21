@@ -1,10 +1,11 @@
 package budget
 
-import pdi.jwt.{Jwt, JwtAlgorithm, JwtClaim}
-import zio._
-import zio.http._
-import zio.json._
 import java.util.concurrent.TimeUnit
+
+import pdi.jwt.{Jwt, JwtAlgorithm, JwtClaim}
+import zio.*
+import zio.http.*
+import zio.json.*
 
 trait Server { val runServer: Task[Nothing] }
 
