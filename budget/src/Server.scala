@@ -7,6 +7,7 @@ import scalatags.Text.all.*
 import upickle.default.*
 import zio.*
 import zio.ZIO.*
+import budget.models.Amount
 
 case class User(username: String)
 opaque type Token = String
@@ -92,18 +93,41 @@ case class ServerRoutes(
 )(using cc: castor.Context, log: cask.Logger) extends cask.Routes:
   import LoginRoutes.requireLogin
   given a: Auther = auther
-  def runZio[A](f: Task[cask.model.Response[A]]): cask.model.Response[A] =
+  def runZio[A](f: Task[A]): A =
     Unsafe.unsafe { us =>
       given u: Unsafe = us
       runtime.unsafe.run(f).getOrThrow()
     }
 
-  def page(content: Frag) = html(
+  @cask.staticResources("/static")
+  def staticResources() = "static"
+
+  def page(content: Frag*) = html(
     head(
       link(rel := "stylesheet", href := "/static/style.css"),
       script(src := "/static/scripts/htmx.js")
     ),
     body(content)
+  )
+
+  def recentTxns(n: Int) = runZio(for
+      txns <- cm.withConnection(db.getRecentTxns(n))
+    yield table(
+      txns.map { txn =>
+        import models.Currency
+        val amt = txn.amount match
+          case Amount(Currency(_, Some(sym)), magnitude) => sym + magnitude
+          case Amount(Currency(Some(name), None), magnitude) => magnitude + " " + name
+          case Amount(Currency(None, None), magnitude) => magnitude + " (unknown currency)"
+        tr(
+          td(txn.datetime.toLocalDate.toString),
+          td(amt),
+          td(txn.category),
+          td(txn.tags),
+          td(txn.notes)
+        )
+      }
+    )
   )
 
   @requireLogin
@@ -118,7 +142,9 @@ case class ServerRoutes(
         input(`type` := "date", name := "date", value := currentDate), br(),
         input(`type` := "text", name := "tags", placeholder := "Tags"), br(),
         input(`type` := "submit")
-      )
+      ), br(),
+      span("Recent Transactions"), br(),
+      recentTxns(10)
     )
 
   @cask.postForm("/txn")

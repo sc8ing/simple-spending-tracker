@@ -7,6 +7,9 @@ import java.time.ZoneId
 import budget.models.*
 import zio.*
 import zio.ZIO.*
+import java.time.LocalDateTime
+import scala.collection.mutable.ListBuffer
+import java.time.format.DateTimeFormatter
 
 trait Database {
   def setupDbIfNeeded:             RIO[Connection, Unit]
@@ -14,6 +17,7 @@ trait Database {
   def insertTag(c: String):        RIO[Connection, Int]
   def insertCategory(c: String):   RIO[Connection, Int]
   def insertLineItem(c: LineItem): RIO[Connection, Int]
+  def getRecentTxns(n: Int):  RIO[Connection, Seq[LineItem.Transaction]]
 }
 
 case class SQLDatabase(
@@ -132,7 +136,7 @@ case class SQLDatabase(
       _ <- log("Running SQL: " + stat.toString.replace('\n', ' '))
       res <- acquireRelease(
         attempt(if (isRead) Some(stat.executeQuery())
-                  else        { stat.executeUpdate(); None })) {
+                else        { stat.executeUpdate(); None })) {
         case None => unit
         case Some(rs) => attempt(rs.close()).logError("Couldn't close result set").ignore
       }
@@ -267,6 +271,43 @@ case class SQLDatabase(
       getOrInsert("txn_tag", List("txn_id" -> txnId, "tag_id" -> tagId))
     )
   } yield txnId
+
+  def getRecentTxns(n: Int):  RIO[Connection, Seq[LineItem.Transaction]] = scoped(for
+    rs <- runQuery(
+      """SELECT cur.name AS currency_name
+      |     , cur.symbol AS currency_symbol
+      |     , txn.amount AS magnitude
+      |     , datetime(txn.created_at / 1000, 'unixepoch') AS datetime
+      |     , txn.notes AS notes
+      |     , cat.name AS category_name
+      |     , group_concat(tag.name) AS tags
+      |FROM txn txn
+      |JOIN category cat on txn.category_id = cat.category_id
+      |JOIN currency cur on txn.currency_id = cur.currency_id
+      |LEFT JOIN txn_tag tt on tt.txn_id = txn.txn_id 
+      |LEFT JOIN tag on tag.tag_id = tt.tag_id
+      |GROUP BY txn.txn_id
+      |ORDER BY datetime(txn.created_at / 1000, 'unixepoch') DESC
+      |LIMIT ?
+      """.stripMargin,
+      _.setInt(1, n)
+    ).flatMap(getOrFail)
+    mkTxn = (rs: ResultSet) => LineItem.Transaction(
+      Amount(
+        Currency(Some(rs.getString("currency_name")), Some(rs.getString("currency_symbol"))),
+        rs.getDouble("magnitude")
+      ),
+      LocalDateTime.parse(rs.getString("datetime"), DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
+      notes = Option(rs.getString("notes")).getOrElse("???"),
+      category = Option(rs.getString("category_name")).getOrElse("???"),
+      tags = Option(rs.getString("tags")).toList.flatMap(_.split(" ").toList)
+    )
+    txns <- attempt {
+      val lis = ListBuffer.empty[LineItem.Transaction]
+      while (rs.next()) lis.append(mkTxn(rs))
+      lis.toSeq
+    }
+  yield txns)
 }
 object SQLDatabase {
   val liveLayer = ZLayer.fromFunction(SQLDatabase(_, _))
