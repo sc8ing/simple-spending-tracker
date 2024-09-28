@@ -1,6 +1,7 @@
 package budget
 
 import java.time.LocalDateTime
+
 import upickle.default.*
 
 object models {

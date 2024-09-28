@@ -1,8 +1,10 @@
 package budget
 
-import java.time.LocalDateTime
-import scalatags.Text.all.*
+import java.time.format.DateTimeFormatter
+import java.time.{LocalDate, LocalDateTime}
 import scala.util.Try
+
+import scalatags.Text.all.*
 import zio.*
 import zio.ZIO.*
 
@@ -95,33 +97,35 @@ case class ServerRoutes()(implicit cc: castor.Context, log: cask.Logger, auther:
 
   @requireLogin
   @cask.get("/")
-  def hello() = page(
-    form(action := "/txn", method := "post")(
-      input(`type` := "text", name := "amount", placeholder := "Amount"),
-      input(`type` := "text", name := "category", placeholder := "Category"),
-      input(`type` := "text", name := "notes", placeholder := "Description"),
-      input(`type` := "date", name := "datetime", placeholder := "Date"),
-      input(`type` := "text", name := "tags", placeholder := "Tags"),
-      input(`type` := "submit")
+  def hello() =
+    val currentDate = LocalDate.now.format(DateTimeFormatter.ISO_LOCAL_DATE)
+    page(
+      form(action := "/txn", method := "post")(
+        input(`type` := "text", name := "amount", placeholder := "Amount"), br(),
+        input(`type` := "text", name := "category", placeholder := "Category"), br(),
+        input(`type` := "text", name := "notes", placeholder := "Description"), br(),
+        input(`type` := "date", name := "date", value := currentDate), br(),
+        input(`type` := "text", name := "tags", placeholder := "Tags"), br(),
+        input(`type` := "submit")
+      )
     )
-  )
 
   @cask.postForm("/txn")
   def txn(
     amount: String,
     category: String,
     notes: String,
-    datetime: String,
+    date: String,
     tags: Seq[String]
   ) =
     val res = for
       parser <- Right(SimpleInefficientParser())
       amt <- parser.parseAmountWithOptionalCurrency(amount)
                .left.map(new Throwable(_))
-      dt <- Try(LocalDateTime.parse(datetime)).toEither
+      dt <- Try(LocalDate.parse(date)).toEither
       lineItem = models.LineItem.Transaction(
         amount = amt,
-        datetime = dt,
+        datetime = LocalDateTime.from(dt.atStartOfDay()),
         notes = notes,
         category = category,
         tags = tags.toList
