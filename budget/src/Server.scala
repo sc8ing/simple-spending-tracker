@@ -1,6 +1,10 @@
 package budget
 
+import java.time.LocalDateTime
 import scalatags.Text.all.*
+import scala.util.Try
+import zio.*
+import zio.ZIO.*
 
 case class User(username: String)
 opaque type Token = String
@@ -18,6 +22,9 @@ case class SqliteAuther() extends Auther:
     if token.startsWith("valid") then Some(User("jacob")) else None
   def login(username: String, password: String): Option[Token] =
     if username == "jacob" && password == "bennett" then Some(Token("valid")) else None
+
+object SqliteAuther:
+  val liveLayer = ZLayer.succeed(SqliteAuther())
 
 case class LoginRoutes(auther: Auther)(using cc: castor.Context, log: cask.Logger) extends cask.Routes:
   import LoginRoutes.SessionTokenCookieName
@@ -78,18 +85,66 @@ object LoginRoutes:
 case class ServerRoutes()(implicit cc: castor.Context, log: cask.Logger, auther: Auther) extends cask.Routes:
   import LoginRoutes.requireLogin
 
+  def page(content: Frag) = html(
+    head(
+      link(rel := "stylesheet", href := "/static/style.css"),
+      script(src := "/static/scripts/htmx.js")
+    ),
+    body(content)
+  )
+
   @requireLogin
   @cask.get("/")
-  def hello() =
-    h1("Logged in!")
+  def hello() = page(
+    form(action := "/txn", method := "post")(
+      input(`type` := "text", name := "amount", placeholder := "Amount"),
+      input(`type` := "text", name := "category", placeholder := "Category"),
+      input(`type` := "text", name := "notes", placeholder := "Description"),
+      input(`type` := "date", name := "datetime", placeholder := "Date"),
+      input(`type` := "text", name := "tags", placeholder := "Tags"),
+      input(`type` := "submit")
+    )
+  )
 
-  @cask.post("/do-thing")
-  def doThing(request: cask.Request) =
-    request.text().reverse
+  @cask.postForm("/txn")
+  def txn(
+    amount: String,
+    category: String,
+    notes: String,
+    datetime: String,
+    tags: Seq[String]
+  ) =
+    val res = for
+      parser <- Right(SimpleInefficientParser())
+      amt <- parser.parseAmountWithOptionalCurrency(amount)
+               .left.map(new Throwable(_))
+      dt <- Try(LocalDateTime.parse(datetime)).toEither
+      lineItem = models.LineItem.Transaction(
+        amount = amt,
+        datetime = dt,
+        notes = notes,
+        category = category,
+        tags = tags.toList
+      )
+    yield ()
+    res.fold(
+      err => cask.Response(err.toString, statusCode = 400),
+      out => cask.Response("Success: " + out)
+    )
 
   initialize()
 
-object Server extends cask.Main:
+trait Server:
+  def serve: Task[Unit]
+
+case class CaskServer(
+  runtime: Runtime[Any],
+  db: Database,
+  auther: Auther
+) extends cask.Main with Server:
   override val port = 8080
-  given auther: Auther = SqliteAuther()
+  given authr: Auther = auther
   val allRoutes = Seq(ServerRoutes(), LoginRoutes(auther))
+  def serve = attemptBlockingCancelable(main(Array.empty))(unit) *> never
+object CaskServer:
+  val liveLayer = ZLayer.fromFunction(CaskServer(_, _, _))

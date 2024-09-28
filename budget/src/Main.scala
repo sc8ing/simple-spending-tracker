@@ -52,6 +52,12 @@ object Main extends ZIOAppDefault {
         ZLayer.fromFunction((c: AppConfig) => c.defaultSettings)
       ))
     case AppMode.Server =>
-      succeed(Server.main(Array.empty)).fork *> ZIO.sleep(Duration.Infinity)
+      serviceWithZIO[Server](_.serve).provideLayer(ZLayer.make[Server](
+        ZLayer.succeed(runtime),
+        CaskServer.liveLayer,
+        AppConfig.defaultLoadOrCreate,
+        dbUtilsLayer,
+        SqliteAuther.liveLayer
+      ))
   }
 }
