@@ -141,7 +141,7 @@ case class ServerRoutes(
         input(`type` := "text", name := "notes", placeholder := "Description"), br(),
         input(`type` := "date", name := "date", value := currentDate), br(),
         input(`type` := "text", name := "tags", placeholder := "Tags"), br(),
-        input(`type` := "submit")
+        input(`type` := "submit", value := "Save")
       ), br(),
       span("Recent Transactions"), br(),
       recentTxns(10)
