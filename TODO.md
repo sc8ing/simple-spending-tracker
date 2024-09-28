@@ -1,0 +1,10 @@
+- add user table with hashed passwords or whatever
+- add user handling to db & app for tables
+- make sqlite auther a real auther using user table
+- add config option for port
+- copy db file to waitress
+- add config file to waitress
+- copy assembled jar file to waitress & start
+- set nginx to reverse proxy to assembled jar file via port
+- set reminder to backup file from waitress to local
+- save page on phone
