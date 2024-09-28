@@ -2,9 +2,9 @@ package budget
 
 import java.time.format.DateTimeFormatter
 import java.time.{LocalDate, LocalDateTime}
-import scala.util.Try
 
 import scalatags.Text.all.*
+import upickle.default.*
 import zio.*
 import zio.ZIO.*
 
@@ -84,8 +84,14 @@ object LoginRoutes:
       getLoggedInUser(ctx).map(user => delegate(Map("user" -> user)))
         .getOrElse(cask.router.Result.Success(cask.Redirect("/login")))
 
-case class ServerRoutes()(implicit cc: castor.Context, log: cask.Logger, auther: Auther) extends cask.Routes:
+case class ServerRoutes(auther: Auther, runtime: Runtime[Any])(using cc: castor.Context, log: cask.Logger) extends cask.Routes:
   import LoginRoutes.requireLogin
+  given a: Auther = auther
+  def runZio[A](f: Task[cask.model.Response[A]]): cask.model.Response[A] =
+    Unsafe.unsafe { us =>
+      given u: Unsafe = us
+      runtime.unsafe.run(f).getOrThrow()
+    }
 
   def page(content: Frag) = html(
     head(
@@ -117,12 +123,11 @@ case class ServerRoutes()(implicit cc: castor.Context, log: cask.Logger, auther:
     notes: String,
     date: String,
     tags: Seq[String]
-  ) =
-    val res = for
-      parser <- Right(SimpleInefficientParser())
-      amt <- parser.parseAmountWithOptionalCurrency(amount)
-               .left.map(new Throwable(_))
-      dt <- Try(LocalDate.parse(date)).toEither
+  ) = runZio:
+    for
+      parser <- succeed(SimpleInefficientParser())
+      amt <- fromEither(parser.parseAmountWithOptionalCurrency(amount)).mapError(new Throwable(_))
+      dt <- attempt(LocalDate.parse(date))
       lineItem = models.LineItem.Transaction(
         amount = amt,
         datetime = LocalDateTime.from(dt.atStartOfDay()),
@@ -130,11 +135,8 @@ case class ServerRoutes()(implicit cc: castor.Context, log: cask.Logger, auther:
         category = category,
         tags = tags.toList
       )
-    yield ()
-    res.fold(
-      err => cask.Response(err.toString, statusCode = 400),
-      out => cask.Response("Success: " + out)
-    )
+      js = write(lineItem, indent = 4)
+    yield cask.Response(js)
 
   initialize()
 
@@ -147,8 +149,7 @@ case class CaskServer(
   auther: Auther
 ) extends cask.Main with Server:
   override val port = 8080
-  given authr: Auther = auther
-  val allRoutes = Seq(ServerRoutes(), LoginRoutes(auther))
+  val allRoutes = Seq(ServerRoutes(auther, runtime), LoginRoutes(auther))
   def serve = attemptBlockingCancelable(main(Array.empty))(unit) *> never
 object CaskServer:
   val liveLayer = ZLayer.fromFunction(CaskServer(_, _, _))
