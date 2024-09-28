@@ -84,7 +84,12 @@ object LoginRoutes:
       getLoggedInUser(ctx).map(user => delegate(Map("user" -> user)))
         .getOrElse(cask.router.Result.Success(cask.Redirect("/login")))
 
-case class ServerRoutes(auther: Auther, runtime: Runtime[Any])(using cc: castor.Context, log: cask.Logger) extends cask.Routes:
+case class ServerRoutes(
+  auther: Auther,
+  runtime: Runtime[Any],
+  db: Database,
+  cm: SQLConnManager
+)(using cc: castor.Context, log: cask.Logger) extends cask.Routes:
   import LoginRoutes.requireLogin
   given a: Auther = auther
   def runZio[A](f: Task[cask.model.Response[A]]): cask.model.Response[A] =
@@ -135,6 +140,7 @@ case class ServerRoutes(auther: Auther, runtime: Runtime[Any])(using cc: castor.
         category = category,
         tags = tags.toList
       )
+      _ <- cm.withConnection(db.insertLineItem(lineItem))
       js = write(lineItem, indent = 4)
     yield cask.Response(js)
 
@@ -146,10 +152,11 @@ trait Server:
 case class CaskServer(
   runtime: Runtime[Any],
   db: Database,
-  auther: Auther
+  auther: Auther,
+  cm: SQLConnManager
 ) extends cask.Main with Server:
   override val port = 8080
-  val allRoutes = Seq(ServerRoutes(auther, runtime), LoginRoutes(auther))
+  val allRoutes = Seq(ServerRoutes(auther, runtime, db, cm), LoginRoutes(auther))
   def serve = attemptBlockingCancelable(main(Array.empty))(unit) *> never
 object CaskServer:
-  val liveLayer = ZLayer.fromFunction(CaskServer(_, _, _))
+  val liveLayer = ZLayer.fromFunction(CaskServer(_, _, _, _))
